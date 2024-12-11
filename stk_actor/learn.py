@@ -23,8 +23,10 @@ from pystk_actor import env_name, get_wrappers, player_name, PPOClip, EpisodicDQ
 from config import params_ppo, params_dqn
 
 if __name__ == "__main__":
+    
     dqn = EpisodicDQN(OmegaConf.create(params_dqn))
     dqn.run()
+    
     # Setup the environment
     # make_stkenv = partial(
     #     make_env,
@@ -57,24 +59,6 @@ if __name__ == "__main__":
     # done = False
     # state, *_ = env.reset()
     
-    # train_policy = Actor(env.observation_space, params["actor_hidden_size"], env.action_space).with_prefix("current_policy/")
-    # old_policy = copy.deepcopy(train_policy)
-    # critic = VAgent(
-    #         env.observation_space, params["critic_hidden_size"]
-    # ).with_prefix("critic/")
-    # old_critic = copy.deepcopy(critic).with_prefix("old_critic/")
-    
-    # t_policy = TemporalAgent(train_policy)
-    # t_old_policy = TemporalAgent(old_policy)
-    # t_critic = TemporalAgent(critic)
-    # t_old_critic = TemporalAgent(old_critic)
-    
-    # policy_optimizer = setup_optimizer(
-    #     params["optimizer"], train_policy
-    # )
-    # critic_optimizer = setup_optimizer(
-    #     params["optimizer"], critic
-    # )
     
     # print(workspace)
     # print("\nObservation space: ", env.observation_space)
