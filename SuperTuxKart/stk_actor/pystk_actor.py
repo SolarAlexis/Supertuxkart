@@ -6,7 +6,7 @@ import gymnasium as gym
 from .actors import DiscreteQAgent, ArgmaxActionSelector, ContinuousDeterministicActor, SquashedGaussianActor, FeatureFilterWrapper, MyActionRescaleWrapper, DiscretePolicy
 
 #: The base environment name
-env_name = "supertuxkart/flattened_discrete-v0"
+env_name = "supertuxkart/flattened_continuous_actions-v0"
 
 #: Player name
 player_name = "SupramaXx"
@@ -25,39 +25,39 @@ player_name = "SupramaXx"
 #     actor.load_state_dict(state)
 #     return actor
 
-# def get_actor(
-#     state, observation_space: gym.spaces.Space, action_space: gym.spaces.Space
-# ) -> Agent:
-#     actor = SquashedGaussianActor(
-#             observation_space, [256, 256], action_space
-#         )
-
-#     if state is None:
-#         raise ValueError("No state available")
-
-#     actor.load_state_dict(state)
-#     return KWAgentWrapper(actor, stochastic=True)
-
 def get_actor(
     state, observation_space: gym.spaces.Space, action_space: gym.spaces.Space
 ) -> Agent:
-    actor = DiscretePolicy(
-            observation_space,
-            [256, 256],
-            action_space,
+    actor = SquashedGaussianActor(
+            observation_space, [256, 256], action_space
         )
 
     if state is None:
         raise ValueError("No state available")
 
-    actor = KWAgentWrapper(
-            actor, 
-            stochastic=False,
-            predict_proba=False,
-            compute_entropy=False,
-        )
     actor.load_state_dict(state)
-    return actor
+    return KWAgentWrapper(actor, stochastic=False)
+
+# def get_actor(
+#     state, observation_space: gym.spaces.Space, action_space: gym.spaces.Space
+# ) -> Agent:
+#     actor = DiscretePolicy(
+#             observation_space,
+#             [256, 256],
+#             action_space,
+#         )
+
+#     if state is None:
+#         raise ValueError("No state available")
+
+#     actor = KWAgentWrapper(
+#             actor, 
+#             stochastic=False,
+#             predict_proba=False,
+#             compute_entropy=False,
+#         )
+#     actor.load_state_dict(state)
+#     return actor
 
 def get_wrappers() -> List[Callable[[gym.Env], gym.Wrapper]]:
     """Returns a list of additional wrappers to be applied to the base
@@ -65,10 +65,10 @@ def get_wrappers() -> List[Callable[[gym.Env], gym.Wrapper]]:
     return [
         # Example of a custom wrapper
         #lambda env: MyWrapper(env, option="1")
-        # lambda env: FeatureFilterWrapper(env, [0, 
-        # 1, 7, 11, 12, 13, 14, 15, 16, 17, 18, 19,
-        # 20, 21, 22, 23, 24, 25, 87, 88]),
-        #lambda env: MyActionRescaleWrapper(env)
+        lambda env: FeatureFilterWrapper(env, [0, 
+        1, 7, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+        20, 21, 22, 23, 24, 25, 87, 88]),
+        lambda env: MyActionRescaleWrapper(env)
     ]
 
 # class PPOClip(EpisodicAlgo):

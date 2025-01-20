@@ -132,7 +132,8 @@ def compute_actor_loss(
 
     t_actor(rb_workspace, t=0, n_steps=1)
     action_logprobs = rb_workspace["action_logprobs"]
-
+    action = rb_workspace["action"][0]
+    steer = action[:, 1] 
 
     # Compute Q-values
 
@@ -144,7 +145,7 @@ def compute_actor_loss(
     # Compute the actor loss
 
     # actor_loss =
-    actor_loss = ent_coef * action_logprobs[0] - current_q_values[0]
+    actor_loss = ent_coef * action_logprobs[0] - current_q_values[0] + torch.mean(torch.where(torch.abs(steer) >= 0.95, torch.abs(steer), torch.tensor(0.0)))
 
 
     return actor_loss.mean()

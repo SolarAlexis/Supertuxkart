@@ -126,9 +126,9 @@ params_SAC = {
         "batch_size": 256,
         "max_grad_norm": 1, #0.5
         "nb_evals": 7, #7
-        "eval_interval": 100_000, #20 000
+        "eval_interval": 200_000, #20 000
         "learning_starts": 2_000, #10 000
-        "max_epochs": 2000, #250
+        "max_epochs": 5_000, #250
         "discount_factor": 0.98,
         "entropy_mode": "auto",  # "auto" or "fixed"
         "init_entropy_coef": 1,
