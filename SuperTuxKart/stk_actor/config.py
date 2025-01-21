@@ -1,3 +1,5 @@
+import time
+
 params_dqn = {
     "base_dir": "${gym_env.env_name}/dqn-S${algorithm.seed}_${current_time:}",
     # `collect_stats` is True: we keep the cumulated reward for all
@@ -124,18 +126,18 @@ params_SAC = {
         "n_steps": 32,
         "buffer_size": 1e6, #20%
         "batch_size": 256,
-        "max_grad_norm": 1, #0.5
+        "max_grad_norm": 0.5, #0.5
         "nb_evals": 7, #7
-        "eval_interval": 200_000, #20 000
-        "learning_starts": 2_000, #10 000
-        "max_epochs": 5_000, #250
-        "discount_factor": 0.98,
+        "eval_interval": 100_000, #20 000
+        "learning_starts": 1_000, #10 000
+        "max_epochs": 500, #250
+        "discount_factor": 0.99,
         "entropy_mode": "auto",  # "auto" or "fixed"
-        "init_entropy_coef": 1,
+        "init_entropy_coef": 0.1,
         "tau_target": 0.01,
         "architecture": {
-            "actor_hidden_size": [256, 256],
-            "critic_hidden_size": [256, 256],
+            "actor_hidden_size": [400, 300],
+            "critic_hidden_size": [400, 300],
         },
     },
     "gym_env": {"env_name": "supertuxkart/flattened_continuous_actions-v0"},
@@ -194,4 +196,56 @@ params_ppo = {
         "lr": 3e-4,
         "eps": 1e-5,
     },
+}
+
+params_TQC={
+  "save_best": False,
+  "logger":{
+    "classname": "bbrl.utils.logger.TFLogger",
+    "log_dir": "./tblogs/" + str(time.time()),
+    "cache_size": 10000,
+    "every_n_seconds": 10,
+    "verbose": False,    
+    },
+
+  "algorithm":{
+    "seed": 1,
+    "n_envs": 1,
+    "n_steps": 512,
+    "n_updates": 512,
+    "buffer_size": 1e6,
+    "batch_size": 256,
+    "max_grad_norm": 0.5,
+    "nb_evals":10,
+    "eval_interval": 2000,
+    "learning_starts": 10000,
+    "max_epochs": 8000,
+    "discount_factor": 0.98,
+    "entropy_coef": 1e-7,
+    "target_entropy": "auto",
+    "tau_target": 0.05,
+    "top_quantiles_to_drop": 2,
+    "architecture":{
+      "actor_hidden_size": [32, 32],
+      "critic_hidden_size": [256, 256],
+      "n_nets": 2,
+      "n_quantiles": 25,
+    },
+  },
+  "gym_env":{
+    "classname": "__main__.make_gym_env",
+    "env_name": "supertuxkart/flattened_continuous_actions-v0",
+    },
+  "actor_optimizer":{
+    "classname": "torch.optim.Adam",
+    "lr": 1e-3,
+    },
+  "critic_optimizer":{
+    "classname": "torch.optim.Adam",
+    "lr": 1e-3,
+    },
+  "entropy_coef_optimizer":{
+    "classname": "torch.optim.Adam",
+    "lr": 1e-3,
+    }
 }

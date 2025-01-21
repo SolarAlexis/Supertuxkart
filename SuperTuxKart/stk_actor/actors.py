@@ -23,6 +23,7 @@ from torch.distributions import (
     TransformedDistribution,
     TanhTransform,
 )
+from bbrl.utils.distributions import SquashedDiagGaussianDistribution
 
 class FeatureFilterWrapper(gym.ObservationWrapper):
     def __init__(self, env, index):
@@ -232,7 +233,7 @@ class SquashedGaussianActor(Agent):
         backbone_output = self.backbone(obs)
         mean = self.last_mean_layer(backbone_output)
         std_out = self.last_std_layer(backbone_output)
-        std = self.softplus(std_out) + self.min_std
+        std = torch.clamp(self.softplus(std_out) + self.min_std, max=10.0)
         # Independent ensures that we have a multivariate
         # Gaussian with a diagonal covariance matrix (given as
         # a vector `std`)
@@ -252,7 +253,8 @@ class SquashedGaussianActor(Agent):
             # Directly uses the mode of the distribution
             action = self.tanh_transform(normal_dist.mode)
 
-        log_prob = action_dist.log_prob(action)
+        action = torch.clamp(action, -1 + 1e-6, 1 - 1e-6)
+        log_prob = torch.clamp(action_dist.log_prob(action), max=0)
         # This line allows to deepcopy the actor...
         self.tanh_transform._cached_x_y = [None, None]
         print(action)
@@ -358,3 +360,103 @@ class DiscretePolicy(Agent):
             entropy = torch.distributions.Categorical(probs).entropy()
             assert torch.isfinite(entropy).all(), "Entropy contains NaN or Inf"
             self.set((f"{self.prefix}entropy", t), entropy)
+
+# TQC part ---------------------------------------------------------------
+
+class BaseActor(Agent):
+    """ Generic class to centralize copy_parameters"""
+
+    def copy_parameters(self, other):
+        """Copy parameters from other agent"""
+        for self_p, other_p in zip(self.parameters(), other.parameters()):
+            self_p.data.copy_(other_p)
+            
+def build_backbone(sizes, activation):
+    layers = []
+    for j in range(len(sizes) - 1):
+        layers += [nn.Linear(sizes[j], sizes[j + 1]), activation]
+    return layers
+
+def build_mlp(sizes, activation, output_activation=nn.Identity()):
+    """Helper function to build a multi-layer perceptron (function from $\mathbb R^n$ to $\mathbb R^p$)
+    
+    Args:
+        sizes (List[int]): the number of neurons at each layer
+        activation (nn.Module): a PyTorch activation function (after each layer but the last)
+        output_activation (nn.Module): a PyTorch activation function (last layer)
+    """
+    layers = []
+    for j in range(len(sizes) - 1):
+        act = activation if j < len(sizes) - 2 else output_activation
+        layers += [nn.Linear(sizes[j], sizes[j + 1]), act]
+    return nn.Sequential(*layers)
+
+class SquashedGaussianActorTQC(BaseActor):
+    def __init__(self, state_dim, hidden_layers, action_dim):
+        super().__init__()
+        
+        obs_space_size = state_dim["continuous"].shape[0]
+        action_space_size = action_dim.shape[0]
+        
+        backbone_dim = [obs_space_size] + list(hidden_layers)
+        self.layers = build_backbone(backbone_dim, activation=nn.Tanh())
+        self.backbone = nn.Sequential(*self.layers)
+        self.last_mean_layer = nn.Linear(hidden_layers[-1], action_space_size)
+        self.last_std_layer = nn.Linear(hidden_layers[-1], action_space_size)
+        self.action_dist = SquashedDiagGaussianDistribution(action_space_size)
+
+    def get_distribution(self, obs: torch.Tensor):
+        backbone_output = self.backbone(obs)
+        mean = self.last_mean_layer(backbone_output)
+        std_out = self.last_std_layer(backbone_output)
+
+        std_out = std_out.clamp(-20, 2)  # as in the official code
+        std = torch.exp(std_out)
+        return self.action_dist.make_distribution(mean, std)
+
+    def forward(self, t, stochastic=False, predict_proba=False, **kwargs):
+        action_dist = self.get_distribution(self.get(("env/env_obs/continuous", t)))
+        if predict_proba:
+            action = self.get(("action", t))
+            log_prob = action_dist.log_prob(action)
+            self.set(("logprob_predict", t), log_prob)
+        else:
+            if stochastic:
+                action = action_dist.sample()
+            else:
+                action = action_dist.mode()
+            log_prob = action_dist.log_prob(action)
+            self.set(("action", t), action)
+            self.set(("action_logprobs", t), log_prob)
+
+    def predict_action(self, obs, stochastic=False):
+        """Predict just one action (without using the workspace)"""
+        action_dist = self.get_distribution(obs)
+        return action_dist.sample() if stochastic else action_dist.mode()
+
+class TruncatedQuantileNetwork(Agent):
+    def __init__(self, state_dim, hidden_layers, n_nets, action_dim, n_quantiles):
+        super().__init__()
+        
+        obs_space_size = state_dim["continuous"].shape[0]
+        action_space_size = action_dim.shape[0]
+        
+        self.is_q_function = True
+        self.nets = []
+        for i in range(n_nets):
+            net = build_mlp([obs_space_size + action_space_size] + list(hidden_layers) + [n_quantiles], activation=nn.ReLU())
+            self.add_module(f'qf{i}', net)
+            self.nets.append(net)
+
+    def forward(self, t):
+        obs = self.get(("env/env_obs/continuous", t))
+        action = self.get(("action", t))
+        obs_act = torch.cat((obs, action), dim=1)
+        quantiles = torch.stack(tuple(net(obs_act) for net in self.nets), dim=1)
+        self.set(("quantiles", t), quantiles)
+        return quantiles
+
+    def predict_value(self, obs, action):
+        obs_act = torch.cat((obs, action), dim=0)
+        quantiles = torch.stack(tuple(net(obs_act) for net in self.nets), dim=1)
+        return quantiles
