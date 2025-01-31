@@ -71,45 +71,6 @@ def get_wrappers() -> List[Callable[[gym.Env], gym.Wrapper]]:
         lambda env: MyActionRescaleWrapper(env)
     ]
 
-# class PPOClip(EpisodicAlgo):
-#     def __init__(self, cfg):
-#         super().__init__(cfg, env_wrappers=get_wrappers(), autoreset=True)
-        
-#         obs_space_size = self.train_env.envs[0].observation_space
-#         action_space_size = self.train_env.envs[0].action_space
-        
-#         print("\nObservation space: ", obs_space_size)
-#         print("\naction space: ", action_space_size)
-        
-#         self.train_policy = globals()[cfg.algorithm.policy_type](
-#             obs_space_size,
-#             cfg.algorithm.architecture.actor_hidden_size,
-#             action_space_size,
-#         ).with_prefix("current_policy/")
-        
-#         self.old_policy = copy.deepcopy(self.train_policy).with_prefix("old_policy/")
-
-#         self.eval_policy = KWAgentWrapper(
-#             self.train_policy, 
-#             stochastic=False,
-#             predict_proba=False,
-#             compute_entropy=False,
-#         )
-
-#         self.critic_agent = VAgent(
-#             obs_size, cfg.algorithm.architecture.critic_hidden_size
-#         ).with_prefix("critic/")
-#         self.old_critic_agent = copy.deepcopy(self.critic_agent).with_prefix("old_critic/")
-
-#         self.old_policy = copy.deepcopy(self.train_policy).with_prefix("old_policy/")
-
-#         self.policy_optimizer = setup_optimizer(
-#             cfg.optimizer, self.train_policy
-#         )
-#         self.critic_optimizer = setup_optimizer(
-#             cfg.optimizer, self.critic_agent
-#         )
-
 if __name__ == "__main__":
     
     from pystk2_gymnasium import AgentSpec

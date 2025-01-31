@@ -79,14 +79,16 @@ def get_env_agents(cfg, *, autoreset=True, include_last_state=True) -> Tuple[Gym
     
     # Train environment
     train_env_agent = ParallelGymAgent(
-        partial(make_env, cfg.gym_env.env_name, autoreset=autoreset),
+        partial(make_env, cfg.gym_env.env_name, wrappers=get_wrappers(), render_mode=None,
+                agent=AgentSpec(use_ai=False, name=player_name), autoreset=autoreset),
         cfg.algorithm.n_envs, 
         include_last_state=include_last_state
     ).seed(cfg.algorithm.seed)
 
     # Test environment
     eval_env_agent = ParallelGymAgent(
-        partial(make_env, cfg.gym_env.env_name), 
+        partial(make_env, cfg.gym_env.env_name, wrappers=get_wrappers(), render_mode=None,
+                agent=AgentSpec(use_ai=False, name=player_name), autoreset=autoreset),
         cfg.algorithm.nb_evals,
         include_last_state=include_last_state
     ).seed(cfg.algorithm.seed)
@@ -162,14 +164,17 @@ def compute_critic_loss(
     return loss
 
 def create_tqc_agent(cfg, train_env_agent, eval_env_agent):
-    obs_size, act_size = train_env_agent.get_obs_and_actions_sizes()
+
+    obs_space = train_env_agent.envs[0].observation_space
+    action_space = train_env_agent.envs[0].action_space
+    
     assert (
         train_env_agent.is_continuous_action()
     ), "TQC code dedicated to continuous actions"
 
     # Actor
     actor = SquashedGaussianActor(
-        obs_size, cfg.algorithm.architecture.actor_hidden_size, act_size
+        obs_space, cfg.algorithm.architecture.actor_hidden_size, action_space
     )
 
     # Train/Test agents
@@ -178,8 +183,8 @@ def create_tqc_agent(cfg, train_env_agent, eval_env_agent):
 
     # Builds the critics
     critic = TruncatedQuantileNetwork(
-        obs_size, cfg.algorithm.architecture.critic_hidden_size,
-        cfg.algorithm.architecture.n_nets, act_size,
+        obs_space, cfg.algorithm.architecture.critic_hidden_size,
+        cfg.algorithm.architecture.n_nets, action_space,
         cfg.algorithm.architecture.n_quantiles
     )
     target_critic = copy.deepcopy(critic)
