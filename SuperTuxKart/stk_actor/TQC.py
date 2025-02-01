@@ -16,7 +16,7 @@ from pystk2_gymnasium import AgentSpec
 from functools import partial
 from tqdm import tqdm
 
-from .actors import SquashedGaussianActor, TruncatedQuantileNetwork
+from .actors import SquashedGaussianActorTQC, TruncatedQuantileNetwork
 from .pystk_actor import get_wrappers, player_name
 
 class Logger:
@@ -173,7 +173,7 @@ def create_tqc_agent(cfg, train_env_agent, eval_env_agent):
     ), "TQC code dedicated to continuous actions"
 
     # Actor
-    actor = SquashedGaussianActor(
+    actor = SquashedGaussianActorTQC(
         obs_space, cfg.algorithm.architecture.actor_hidden_size, action_space
     )
 
@@ -222,7 +222,6 @@ def run_tqc(cfg):
     
     train_env_agent, eval_env_agent = get_env_agents(cfg)
 
-    # 3) Create the A2C Agent
     (
         train_agent,
         eval_agent,
@@ -349,7 +348,7 @@ def run_tqc(cfg):
             eval_agent(
                 eval_workspace,
                 t=0,
-                stop_variable="env/done",
+                n_steps= cfg.algorithm.n_steps * 2,
                 stochastic=False,
             )
             rewards = eval_workspace["env/cumulated_reward"][-1]
@@ -364,3 +363,6 @@ def run_tqc(cfg):
                     os.makedirs(directory)
                 filename = directory + cfg.gym_env.env_name + "#tqc#team" + str(mean.item()) + ".agt"
                 actor.save_model(filename)
+            
+            mod_path = Path(inspect.getfile(get_wrappers)).parent
+            torch.save(actor.state_dict(), mod_path / "pystk_actor.pth")
