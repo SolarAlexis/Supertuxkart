@@ -370,26 +370,29 @@ class BaseActor(Agent):
         """Copy parameters from other agent"""
         for self_p, other_p in zip(self.parameters(), other.parameters()):
             self_p.data.copy_(other_p)
-            
-def build_backbone(sizes, activation):
-    layers = []
-    for j in range(len(sizes) - 1):
-        layers += [nn.Linear(sizes[j], sizes[j + 1]), activation]
-    return layers
 
-def build_mlp(sizes, activation, output_activation=nn.Identity()):
-    """Helper function to build a multi-layer perceptron (function from $\mathbb R^n$ to $\mathbb R^p$)
-    
-    Args:
-        sizes (List[int]): the number of neurons at each layer
-        activation (nn.Module): a PyTorch activation function (after each layer but the last)
-        output_activation (nn.Module): a PyTorch activation function (last layer)
-    """
+def build_mlp(sizes, activation, output_activation=nn.Identity(), use_layer_norm=True):
+    """Construit un MLP avec option de normalisation par couche sur les couches cachées."""
     layers = []
     for j in range(len(sizes) - 1):
+        layers.append(nn.Linear(sizes[j], sizes[j + 1]))
+        # On ajoute la normalisation seulement pour les couches cachées
+        if use_layer_norm and j < len(sizes) - 2:
+            layers.append(nn.LayerNorm(sizes[j + 1]))
+        # L'activation est appliquée après normalisation (sauf sur la dernière couche)
         act = activation if j < len(sizes) - 2 else output_activation
-        layers += [nn.Linear(sizes[j], sizes[j + 1]), act]
+        layers.append(act)
     return nn.Sequential(*layers)
+
+def build_backbone(sizes, activation, use_layer_norm=True):
+    """Construit la partie 'backbone' d'un réseau avec option de normalisation par couche."""
+    layers = []
+    for j in range(len(sizes) - 1):
+        layers.append(nn.Linear(sizes[j], sizes[j + 1]))
+        if use_layer_norm:
+            layers.append(nn.LayerNorm(sizes[j + 1]))
+        layers.append(activation)
+    return layers
 
 class SquashedGaussianActorTQC(BaseActor):
     def __init__(self, state_dim, hidden_layers, action_dim):

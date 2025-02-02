@@ -15,16 +15,18 @@ from bbrl.utils.replay_buffer import ReplayBuffer
 from pystk2_gymnasium import AgentSpec
 from functools import partial
 from tqdm import tqdm
+from omegaconf import OmegaConf
 
 from .actors import SquashedGaussianActorTQC, TruncatedQuantileNetwork
 from .pystk_actor import get_wrappers, player_name
+from .config import params_TQC
 
 class Logger:
     def __init__(self, cfg):
         self.logger = instantiate_class(cfg.logger)
 
     def add_log(self, log_string: float, loss: float, steps: int):
-        self.logger.add_scalar(log_string, loss.item(), steps)
+        self.logger.add_scalar(log_string, loss, steps)
 
     # A specific function for RL algorithms having a critic, an actor and an
     # entropy losses
@@ -36,10 +38,10 @@ class Logger:
         self.add_log("actor_loss", actor_loss, steps)
 
     def log_reward_losses(self, rewards: torch.Tensor, nb_steps):
-        self.add_log("reward/mean", rewards.mean(), nb_steps)
-        self.add_log("reward/max", rewards.max(), nb_steps)
-        self.add_log("reward/min", rewards.min(), nb_steps)
-        self.add_log("reward/median", rewards.median(), nb_steps)
+        self.add_log("reward/mean", rewards.mean().item(), nb_steps)
+        self.add_log("reward/max", rewards.max().item(), nb_steps)
+        self.add_log("reward/min", rewards.min().item(), nb_steps)
+        self.add_log("reward/median", rewards.median().item(), nb_steps)
 
 # Configure the optimizer
 def setup_optimizers(cfg, actor, critic):
@@ -205,20 +207,6 @@ def run_tqc(cfg):
     logger = Logger(cfg)
     best_reward = float('-inf')
     ent_coef = cfg.algorithm.entropy_coef
-
-    # 2) Create the environment agent
-    # train_env_agent = AutoResetGymAgent(
-    #     get_class(cfg.gym_env),
-    #     get_arguments(cfg.gym_env),
-    #     cfg.algorithm.n_envs,
-    #     cfg.algorithm.seed,
-    # )
-    # eval_env_agent = NoAutoResetGymAgent(
-    #     get_class(cfg.gym_env),
-    #     get_arguments(cfg.gym_env),
-    #     cfg.algorithm.nb_evals,
-    #     cfg.algorithm.seed,
-    # )
     
     train_env_agent, eval_env_agent = get_env_agents(cfg)
 
@@ -251,6 +239,9 @@ def run_tqc(cfg):
     else:
         target_entropy = cfg.algorithm.target_entropy
 
+    mod_path = Path(inspect.getfile(get_wrappers)).parent
+    mean = np.NINF
+    
     # Training loop
     pbar = tqdm(range(cfg.algorithm.max_epochs))
     for epoch in pbar:
@@ -278,69 +269,101 @@ def run_tqc(cfg):
         rb.put(transition_workspace)
 
         if nb_steps > cfg.algorithm.learning_starts:
-            # Get a sample from the workspace
-            rb_workspace = rb.get_shuffled(cfg.algorithm.batch_size)
+            
+            # Accumulateurs pour sommer les métriques sur n_updates
+            total_critic_loss = 0.0
+            total_actor_loss = 0.0
+            total_entropy_coef_loss = 0.0
+            total_mean_q_value = 0.0
+            total_entropy_coef = 0.0
+            
+            for _ in range(cfg.algorithm.n_updates):
+            
+                # Get a sample from the workspace
+                rb_workspace = rb.get_shuffled(cfg.algorithm.batch_size)
 
-            done, truncated, reward, action_logprobs_rb = rb_workspace[
-                "env/done", "env/truncated", "env/reward", "action_logprobs"
-            ]
+                done, truncated, reward, action_logprobs_rb = rb_workspace[
+                    "env/done", "env/truncated", "env/reward", "action_logprobs"
+                ]
 
-            # Determines whether values of the critic should be propagated
-            # True if the episode reached a time limit or if the task was not done
-            # See https://github.com/osigaud/bbrl/blob/master/docs/time_limits.md
-            must_bootstrap = ~done[1]
+                # Determines whether values of the critic should be propagated
+                # True if the episode reached a time limit or if the task was not done
+                # See https://github.com/osigaud/bbrl/blob/master/docs/time_limits.md
+                must_bootstrap = ~done[1]
 
-            critic_loss = compute_critic_loss(cfg, reward, must_bootstrap,
-                                              t_actor, q_agent, target_q_agent,
-                                              rb_workspace, ent_coef)
+                critic_loss = compute_critic_loss(cfg, reward, must_bootstrap,
+                                                t_actor, q_agent, target_q_agent,
+                                                rb_workspace, ent_coef)
 
-            logger.add_log("critic_loss", critic_loss, nb_steps)
+                total_critic_loss += critic_loss.item()
 
-            actor_loss = compute_actor_loss(
-                ent_coef, t_actor, q_agent, rb_workspace
-            )
-            logger.add_log("actor_loss", actor_loss, nb_steps)
+                actor_loss = compute_actor_loss(
+                    ent_coef, t_actor, q_agent, rb_workspace
+                )
+                total_actor_loss += actor_loss.item()
 
-            # Entropy coef update part ########################
+                # Entropy coef update part ########################
+                if entropy_coef_optimizer is not None:
+                    # Important: detach the variable from the graph
+                    # so that we don't change it with other losses
+                    # see https://github.com/rail-berkeley/softlearning/issues/60
+                    ent_coef = torch.exp(log_entropy_coef.detach())
+                    entropy_coef_loss = -(
+                            log_entropy_coef * (action_logprobs_rb + target_entropy)
+                    ).mean()
+                    entropy_coef_optimizer.zero_grad()
+                    # We need to retain the graph because we reuse the
+                    # action_logprobs are used to compute both the actor loss and
+                    # the critic loss
+                    entropy_coef_loss.backward(retain_graph=True)
+                    entropy_coef_optimizer.step()
+                    total_entropy_coef_loss += entropy_coef_loss.item()
+                    total_entropy_coef += ent_coef.item()
+
+                # Actor update part ###############################
+                actor_optimizer.zero_grad()
+                actor_loss.backward()
+                torch.nn.utils.clip_grad_norm_(
+                    actor.parameters(), cfg.algorithm.max_grad_norm
+                )
+                actor_optimizer.step()
+
+                # Critic update part ###############################
+                critic_optimizer.zero_grad()
+                critic_loss.backward()
+                torch.nn.utils.clip_grad_norm_(
+                    critic.parameters(), cfg.algorithm.max_grad_norm
+                )
+                critic_optimizer.step()
+                
+                with torch.no_grad():
+                    q_agent(rb_workspace, t=0, n_steps=1)
+                    quantiles = rb_workspace["quantiles"].squeeze()
+                    total_mean_q_value += quantiles.mean().item()
+                ####################################################
+
+                # Soft update of target q function
+                tau = cfg.algorithm.tau_target
+                soft_update_params(critic, target_critic, tau)
+
+            # Calcul de la moyenne sur les n_updates
+            avg_critic_loss = total_critic_loss / cfg.algorithm.n_updates
+            avg_actor_loss = total_actor_loss / cfg.algorithm.n_updates
             if entropy_coef_optimizer is not None:
-                # Important: detach the variable from the graph
-                # so that we don't change it with other losses
-                # see https://github.com/rail-berkeley/softlearning/issues/60
-                ent_coef = torch.exp(log_entropy_coef.detach())
-                entropy_coef_loss = -(
-                        log_entropy_coef * (action_logprobs_rb + target_entropy)
-                ).mean()
-                entropy_coef_optimizer.zero_grad()
-                # We need to retain the graph because we reuse the
-                # action_logprobs are used to compute both the actor loss and
-                # the critic loss
-                entropy_coef_loss.backward(retain_graph=True)
-                entropy_coef_optimizer.step()
-                logger.add_log("entropy_coef_loss", entropy_coef_loss, nb_steps)
-                logger.add_log("entropy_coef", ent_coef, nb_steps)
+                avg_entropy_coef_loss = total_entropy_coef_loss / cfg.algorithm.n_updates
+                avg_entropy_coef = total_entropy_coef / cfg.algorithm.n_updates
+            avg_mean_q_value = total_mean_q_value / cfg.algorithm.n_updates
 
-            # Actor update part ###############################
-            actor_optimizer.zero_grad()
-            actor_loss.backward()
-            torch.nn.utils.clip_grad_norm_(
-                actor.parameters(), cfg.algorithm.max_grad_norm
-            )
-            actor_optimizer.step()
-
-            # Critic update part ###############################
-            critic_optimizer.zero_grad()
-            critic_loss.backward()
-            torch.nn.utils.clip_grad_norm_(
-                critic.parameters(), cfg.algorithm.max_grad_norm
-            )
-            critic_optimizer.step()
-            ####################################################
-
-            # Soft update of target q function
-            tau = cfg.algorithm.tau_target
-            soft_update_params(critic, target_critic, tau)
-            # soft_update_params(actor, target_actor, tau)
-
+            # Enregistrement des métriques moyennées
+            logger.add_log("critic_loss", torch.tensor(avg_critic_loss), nb_steps)
+            logger.add_log("actor_loss", torch.tensor(avg_actor_loss), nb_steps)
+            if entropy_coef_optimizer is not None:
+                logger.add_log("entropy_coef_loss", torch.tensor(avg_entropy_coef_loss), nb_steps)
+                logger.add_log("entropy_coef", torch.tensor(avg_entropy_coef), nb_steps)
+            logger.add_log("critic/mean_q_value", torch.tensor(avg_mean_q_value), nb_steps)
+        
+        pbar.set_description(f"nb_steps: {nb_steps}, reward: {mean:.3f}")
+        
         # Evaluate ###########################################
         if nb_steps - tmp_steps > cfg.algorithm.eval_interval:
             tmp_steps = nb_steps
@@ -353,16 +376,11 @@ def run_tqc(cfg):
             )
             rewards = eval_workspace["env/cumulated_reward"][-1]
             mean = rewards.mean()
-            logger.log_reward_losses(mean, nb_steps)
+            logger.log_reward_losses(rewards, nb_steps)
 
-            pbar.set_description(f"nb_steps: {nb_steps}, reward: {mean:.3f}")
             if cfg.save_best and mean > best_reward:
                 best_reward = mean
-                directory = f"./agents/{cfg.gym_env.env_name}/tqc_agent/"
-                if not os.path.exists(directory):
-                    os.makedirs(directory)
-                filename = directory + cfg.gym_env.env_name + "#tqc#team" + str(mean.item()) + ".agt"
-                actor.save_model(filename)
+                torch.save(actor.state_dict(), mod_path / "pystk_actor.pth")
             
-            mod_path = Path(inspect.getfile(get_wrappers)).parent
             torch.save(actor.state_dict(), mod_path / "pystk_actor.pth")
+            
