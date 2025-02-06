@@ -1,51 +1,163 @@
-import numpy as np
-import torch
-from bbrl.agents import Agents
-from bbrl.workspace import Workspace
+import gymnasium as gym
 from pystk2_gymnasium import AgentSpec
-from functools import partial
-from gymnasium import make
+import pygame
+import pickle
+import time
+import numpy as np
+from typing import List, Callable
 
-from .pystk_actor import player_name, get_wrappers
+# =============================================================================
+# Vos Wrappers
+# =============================================================================
 
-def collect_demos(cfg, nb_episodes=50, demo_path="demos.npy"):
-    # Créez un environnement pour la collecte en mode non stochastique
-    env_agent, _ = get_env_agents(cfg, autoreset=True, include_last_state=True)
-    
-    # On utilise un agent "expert" pour piloter.
-    # Par exemple, vous pouvez utiliser une policy experte (ici, c'est à vous de définir
-    # comment piloter l'agent manuellement ou via un contrôleur pré-défini).
-    # Ici, nous allons supposer que vous avez une fonction expert_policy(obs) qui renvoie
-    # une action (un vecteur de 2 valeurs dans [-1,1]).
-    def expert_policy(obs):
-        # Exemple très simple : toujours aller tout droit sans tourner.
-        # Remplacez ceci par votre code pour piloter manuellement ou par une policy experte.
-        return np.array([1.0, 0.0], dtype=np.float32)
-    
-    demos = []
-    for ep in range(nb_episodes):
-        workspace = Workspace()
-        # Remarquez qu'on utilise stochastic=False pour que l'environnement
-        # ne rajoute pas de bruit et que l'agent exécute exactement la policy que l'on donne.
-        env_agent(workspace, t=0, n_steps=cfg.algorithm.n_steps, stochastic=False)
+class FeatureFilterWrapper(gym.ObservationWrapper):
+    def __init__(self, env, index):
+        super(FeatureFilterWrapper, self).__init__(env)
+        self.index = index
         
-        # Récupérer les transitions
-        transitions = workspace.get_transitions()
-        # On peut par exemple récupérer les observations et actions
-        # Ici, j'utilise des clés génériques, adaptez selon ce que renvoie votre Workspace.
-        demo_episode = {
-            "observations": transitions["env/obs"],  # ou la clé correspondante
-            "actions": transitions["action"],
-        }
-        demos.append(demo_episode)
-        print(f"Episode {ep+1}/{nb_episodes} collecté.")
-    
-    # Sauvegarde des démonstrations
-    np.save(demo_path, demos)
-    print(f"Démonstrations sauvegardées dans {demo_path}")
+        continuous_space = self.env.observation_space["continuous"]
+        low = np.delete(continuous_space.low, index)
+        high = np.delete(continuous_space.high, index)
+        filtered_continuous_space = gym.spaces.Box(low=low, high=high, dtype=continuous_space.dtype)
+        self.observation_space = gym.spaces.Dict({"continuous": filtered_continuous_space})
 
-# Exemple d'utilisation :
-if __name__ == "__main__":
-    # Chargez votre configuration (ici, cfg) comme dans votre code principal
-    from your_config_module import cfg  # adaptez cet import
-    collect_demos(cfg, nb_episodes=50, demo_path="demos.npy")
+    def observation(self, obs):
+        # On part du principe que obs est un dictionnaire avec la clé "continuous"
+        partial_obs = np.delete(obs["continuous"], self.index)
+        return {"continuous": partial_obs}
+
+class MyActionRescaleWrapper(gym.ActionWrapper):
+    def __init__(self, env):
+        super().__init__(env)
+        self.action_space = gym.spaces.Box(
+            low=np.array([-1, -1], dtype=np.float32),
+            high=np.array([1,  1], dtype=np.float32),
+            dtype=np.float32
+        )
+
+    def action(self, agent_action):
+        """
+        Transforme l'action de l'agent (dans [-1,1] pour chacune des 2 composantes)
+        en une action valide pour l'environnement ([0,1] pour la première composante
+        et [-1,1] pour la deuxième).
+        """
+        env_action = np.array(agent_action, copy=True, dtype=np.float32)
+        env_action[..., 0] = (env_action[..., 0] + 1.0) / 2.0
+        return env_action
+
+def get_wrappers() -> List[Callable[[gym.Env], gym.Wrapper]]:
+    """Retourne la liste de wrappers à appliquer à l'environnement."""
+    return [
+        lambda env: FeatureFilterWrapper(env, [0, 1, 7, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+                                                 20, 21, 22, 23, 24, 25, 87, 88]),
+        lambda env: MyActionRescaleWrapper(env)
+    ]
+
+# =============================================================================
+# Création de l'environnement avec wrappers
+# =============================================================================
+
+env_name = "supertuxkart/flattened_continuous_actions-v0"
+env = gym.make(env_name, render_mode="human", agent=AgentSpec(use_ai=False))
+
+# Appliquer les wrappers
+for wrapper in get_wrappers():
+    env = wrapper(env)
+
+obs, info = env.reset()
+
+# Afficher la structure de l'observation pour vérifier l'effet des wrappers
+if isinstance(obs, dict):
+    print("Clés de l'observation :", list(obs.keys()))
+    print("Forme de l'observation 'continuous' :", np.array(obs["continuous"]).shape)
+else:
+    print("Observation de type", type(obs), "de forme", np.array(obs).shape)
+
+# =============================================================================
+# Configuration de pygame pour la capture des entrées clavier
+# =============================================================================
+
+pygame.init()
+screen = pygame.display.set_mode((640, 480))
+pygame.display.set_caption("Conduite manuelle - SuperTuxKart")
+clock = pygame.time.Clock()
+
+# =============================================================================
+# Collecte des démonstrations
+# =============================================================================
+
+demo_data = []  # Liste pour stocker les transitions
+episode = 0
+max_episodes = 20  # Nombre d'épisodes de démonstration à collecter
+
+print("Contrôlez le kart avec les flèches :")
+print(" - Haut : accélérer doucement")
+print(" - Bas : freiner doucement")
+print(" - Gauche/Droite : tourner doucement")
+time.sleep(2)  # Temps pour se préparer
+
+running = True
+while running and episode < max_episodes:
+    # Gestion des événements pygame
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+
+    # Lecture de l'état du clavier
+    keys = pygame.key.get_pressed()
+    acc = -0.6
+    steer = 0.0
+    if keys[pygame.K_z]:
+        acc = -0.6    # accélération réduite pour une conduite plus douce
+    if keys[pygame.K_m]:
+        acc = 0.5     # boost
+    if keys[pygame.K_s]:
+        acc = -0.9    # freinage moins brutal
+    if keys[pygame.K_q]:
+        steer = -0.45 # tourner à gauche en douceur
+    if keys[pygame.K_d]:
+        steer = 0.45  # tourner à droite en douceur
+
+    # Construire l'action (vecteur à 2 composantes)
+    action = np.array([acc, steer])
+    
+    # Effectuer un pas dans l'environnement
+    next_obs, reward, terminated, truncated, info = env.step(action)
+    done = terminated or truncated
+
+    # Enregistrer la transition
+    # Ici, on enregistre directement l'observation renvoyée par l'environnement (avec wrappers)
+    demo_data.append({
+        'obs': obs,
+        'action': action,
+        'reward': reward,
+        'next_obs': next_obs,
+        'done': done
+    })
+    
+    # Mise à jour de l'observation
+    obs = next_obs
+
+    # Rafraîchir l'affichage et limiter à 30 fps
+    pygame.display.flip()
+    clock.tick(30)
+
+    # Si l'épisode est terminé, réinitialiser l'environnement
+    if done:
+        episode += 1
+        print(f"Episode {episode}/{max_episodes} terminé.")
+        obs, info = env.reset()
+        time.sleep(1)
+
+env.close()
+pygame.quit()
+
+# =============================================================================
+# Sauvegarde des démonstrations
+# =============================================================================
+
+save_path = "/home/alexis/SuperTuxKart/stk_actor/demo_data.pkl"
+with open(save_path, "wb") as f:
+    pickle.dump(demo_data, f)
+
+print(f"Enregistrement terminé : {len(demo_data)} transitions sauvegardées dans {save_path}.")

@@ -413,7 +413,7 @@ class SquashedGaussianActorTQC(BaseActor):
         mean = self.last_mean_layer(backbone_output)
         std_out = self.last_std_layer(backbone_output)
 
-        std_out = std_out.clamp(-20, 2)  # as in the official code
+        std_out = std_out.clamp(-5, 2)  # as in the official code
         std = torch.exp(std_out)
         return self.action_dist.make_distribution(mean, std)
 

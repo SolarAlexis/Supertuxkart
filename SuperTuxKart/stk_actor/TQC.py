@@ -1,8 +1,8 @@
-import os
 import copy
 from pathlib import Path
 import inspect
 from typing import Tuple, Optional, Iterator
+import pickle
 
 import numpy as np
 import torch
@@ -202,11 +202,58 @@ def create_tqc_agent(cfg, train_env_agent, eval_env_agent):
         target_critic
     )
 
+def behavioral_cloning_pretraining(actor, optimizer, demo_data, logger, num_iterations=10000, batch_size=256):
+    """
+    Pré-entraînement de l'acteur par imitation (behavioral cloning) en utilisant
+    les démonstrations collectées.
+
+    :param actor: l'acteur à pré-entraîner (de type SquashedGaussianActorTQC)
+    :param optimizer: l'optimizer utilisé pour l'acteur (par exemple Adam)
+    :param demo_data: la liste des transitions (chargée depuis le pickle)
+                      Chaque élément est un dictionnaire contenant par exemple :
+                      {'obs': ..., 'action': ..., 'reward': ..., 'next_obs': ..., 'done': ...}
+                      On suppose que obs est un dictionnaire avec la clé "continuous".
+    :param num_iterations: nombre d'itérations de pré-entraînement
+    :param batch_size: taille du mini-batch
+    """
+    actor.train()
+    for it in range(num_iterations):
+        # Sélection aléatoire d'un mini-batch
+        indices = np.random.choice(len(demo_data), batch_size, replace=True)
+        obs_batch = [demo_data[i]['obs'] for i in indices]
+        actions_batch = [demo_data[i]['action'] for i in indices]
+        
+        # Ici, on suppose que chaque observation est un dictionnaire avec la clé "continuous"
+        # On crée un batch d'observations (attention aux dimensions attendues par l'acteur)
+        obs_continuous = np.stack([obs['continuous'] for obs in obs_batch], axis=0)
+        actions = np.stack(actions_batch, axis=0)
+        
+        # Conversion en tenseurs (et transfert sur le même device que l'acteur)
+        device = next(actor.parameters()).device
+        obs_tensor = torch.tensor(obs_continuous, dtype=torch.float32, device=device)
+        actions_tensor = torch.tensor(actions, dtype=torch.float32, device=device)
+        
+        # Passage dans l'acteur pour obtenir la distribution
+        dist = actor.get_distribution(obs_tensor)
+        # Calcul de la log-vraisemblance de l'action démonstration
+        log_probs = dist.log_prob(actions_tensor)
+        loss = - log_probs.mean()
+        
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        
+        logger.add_log("pretraining_actor_loss", loss.item(), it)
+        
+        if it % 1000 == 0:
+            print(f"Behavioral Cloning it {it}/{num_iterations}, loss: {loss.item():.4f}")
+
 def run_tqc(cfg):
     # 1)  Build the  logger
     logger = Logger(cfg)
     best_reward = float('-inf')
     ent_coef = cfg.algorithm.entropy_coef
+    mod_path = Path(inspect.getfile(get_wrappers)).parent
     
     train_env_agent, eval_env_agent = get_env_agents(cfg)
 
@@ -217,7 +264,21 @@ def run_tqc(cfg):
         critic,
         target_critic
     ) = create_tqc_agent(cfg, train_env_agent, eval_env_agent)
+    
+    # Configure the optimizer
+    actor_optimizer, critic_optimizer = setup_optimizers(cfg, actor, critic)
+    entropy_coef_optimizer, log_entropy_coef = setup_entropy_optimizers(cfg)
 
+    # --- Pré-entraînement par imitation ---
+    demo_data_path = "/home/alexis/SuperTuxKart/stk_actor/demo_data.pkl"
+    with open(demo_data_path, "rb") as f:
+        demo_data = pickle.load(f)
+    
+    print("Lancement du pré-entraînement (Behavioral Cloning) sur l'acteur...")
+    behavioral_cloning_pretraining(actor, actor_optimizer, demo_data, logger, num_iterations=200000, batch_size=cfg.algorithm.batch_size)
+    print("Pré-entraînement terminé.")
+    torch.save(actor.state_dict(), mod_path / "pystk_actor.pth")
+    
     t_actor = TemporalAgent(actor)
     q_agent = TemporalAgent(critic)
     target_q_agent = TemporalAgent(target_critic)
@@ -226,9 +287,6 @@ def run_tqc(cfg):
     # Creates a replay buffer
     rb = ReplayBuffer(max_size=cfg.algorithm.buffer_size)
 
-    # Configure the optimizer
-    actor_optimizer, critic_optimizer = setup_optimizers(cfg, actor, critic)
-    entropy_coef_optimizer, log_entropy_coef = setup_entropy_optimizers(cfg)
     nb_steps = 0
     tmp_steps = 0
 
@@ -239,7 +297,6 @@ def run_tqc(cfg):
     else:
         target_entropy = cfg.algorithm.target_entropy
 
-    mod_path = Path(inspect.getfile(get_wrappers)).parent
     mean = np.NINF
     
     # Training loop
@@ -355,12 +412,12 @@ def run_tqc(cfg):
             avg_mean_q_value = total_mean_q_value / cfg.algorithm.n_updates
 
             # Enregistrement des métriques moyennées
-            logger.add_log("critic_loss", torch.tensor(avg_critic_loss), nb_steps)
-            logger.add_log("actor_loss", torch.tensor(avg_actor_loss), nb_steps)
+            logger.add_log("critic_loss", avg_critic_loss, nb_steps)
+            logger.add_log("actor_loss", avg_actor_loss, nb_steps)
             if entropy_coef_optimizer is not None:
-                logger.add_log("entropy_coef_loss", torch.tensor(avg_entropy_coef_loss), nb_steps)
-                logger.add_log("entropy_coef", torch.tensor(avg_entropy_coef), nb_steps)
-            logger.add_log("critic/mean_q_value", torch.tensor(avg_mean_q_value), nb_steps)
+                logger.add_log("entropy_coef_loss", avg_entropy_coef_loss, nb_steps)
+                logger.add_log("entropy_coef", avg_entropy_coef, nb_steps)
+            logger.add_log("critic/mean_q_value", avg_mean_q_value, nb_steps)
         
         pbar.set_description(f"nb_steps: {nb_steps}, reward: {mean:.3f}")
         
@@ -371,7 +428,7 @@ def run_tqc(cfg):
             eval_agent(
                 eval_workspace,
                 t=0,
-                n_steps= cfg.algorithm.n_steps * 2,
+                n_steps= cfg.algorithm.eval_steps,
                 stochastic=False,
             )
             rewards = eval_workspace["env/cumulated_reward"][-1]

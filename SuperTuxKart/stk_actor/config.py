@@ -212,14 +212,15 @@ params_TQC={
     "seed": 1,
     "n_envs": 8,
     "n_steps": 128,
-    "n_updates": 10,
+    "n_updates": 20,
     "buffer_size": 1e6,
     "batch_size": 256,
     "max_grad_norm": 0.5,
     "nb_evals": 16,
-    "eval_interval": 10000,
+    "eval_steps" : 500,
+    "eval_interval": 20000,
     "learning_starts": 10000,
-    "max_epochs": 500, #1000
+    "max_epochs": 1000, #1000
     "discount_factor": 0.99,
     "entropy_coef": 1e-2,
     "target_entropy": "auto",
