@@ -25,18 +25,18 @@ player_name = "SupramaXx"
 #     actor.load_state_dict(state)
 #     return actor
 
-# def get_actor(
-#     state, observation_space: gym.spaces.Space, action_space: gym.spaces.Space
-# ) -> Agent:
-#     actor = SquashedGaussianActor(
-#             observation_space, [256, 256], action_space
-#         )
+def get_actor(
+    state, observation_space: gym.spaces.Space, action_space: gym.spaces.Space
+) -> Agent:
+    actor = SquashedGaussianActor(
+            observation_space, [256, 256], action_space
+        )
 
-#     if state is None:
-#         raise ValueError("No state available")
+    if state is None:
+        raise ValueError("No state available")
 
-#     actor.load_state_dict(state)
-#     return KWAgentWrapper(actor, stochastic=False)
+    actor.load_state_dict(state)
+    return KWAgentWrapper(actor, stochastic=False)
 
 # def get_actor(
 #     state, observation_space: gym.spaces.Space, action_space: gym.spaces.Space
@@ -59,18 +59,18 @@ player_name = "SupramaXx"
 #     actor.load_state_dict(state)
 #     return actor
 
-def get_actor(
-    state, observation_space: gym.spaces.Space, action_space: gym.spaces.Space
-) -> Agent:
-    actor = SquashedGaussianActorTQC(
-            observation_space, [256, 256], action_space
-        )
+# def get_actor(
+#     state, observation_space: gym.spaces.Space, action_space: gym.spaces.Space
+# ) -> Agent:
+#     actor = SquashedGaussianActorTQC(
+#             observation_space, [256, 256], action_space
+#         )
 
-    if state is None:
-        raise ValueError("No state available")
+#     if state is None:
+#         raise ValueError("No state available")
 
-    actor.load_state_dict(state)
-    return actor
+#     actor.load_state_dict(state)
+#     return actor
 
 def get_wrappers() -> List[Callable[[gym.Env], gym.Wrapper]]:
     """Returns a list of additional wrappers to be applied to the base

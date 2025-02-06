@@ -1,10 +1,12 @@
 import copy
 from pathlib import Path
 import inspect
+import pickle
 
 import numpy as np
 import torch
 import torch.nn as nn
+from torch.distributions import TransformedDistribution
 from bbrl.workspace import Workspace
 from bbrl.agents import Agents, TemporalAgent, KWAgentWrapper
 from bbrl_utils.algorithms import EpochBasedAlgo
@@ -150,6 +152,63 @@ def compute_actor_loss(
 
     return actor_loss.mean()
 
+def behavioral_cloning_pretraining(actor, optimizer, demo_data, logger, num_iterations=10000, batch_size=256):
+    """
+    Pré-entraînement de l'acteur par imitation (behavioral cloning) en utilisant
+    les démonstrations collectées.
+
+    :param actor: l'acteur à pré-entraîner (de type SquashedGaussianActor)
+    :param optimizer: l'optimizer utilisé pour l'acteur (par exemple Adam)
+    :param demo_data: la liste des transitions (chargée depuis le pickle)
+                      Chaque élément est un dict contenant par exemple :
+                      {'obs': ..., 'action': ..., 'reward': ..., 'next_obs': ..., 'done': ...}
+                      On suppose que obs est un dict avec la clé "continuous".
+    :param logger: l’instance de logger (ex: Salina Logger)
+    :param num_iterations: nombre d'itérations de pré-entraînement
+    :param batch_size: taille du mini-batch
+    """
+    actor.train()
+    device = next(actor.parameters()).device  # Récupère le device où se trouve l’acteur
+
+    for it in range(num_iterations):
+        # Sélection aléatoire d'un mini-batch
+        indices = np.random.choice(len(demo_data), batch_size, replace=True)
+        obs_batch = [demo_data[i]['obs'] for i in indices]
+        actions_batch = [demo_data[i]['action'] for i in indices]
+        
+        # On suppose que chaque observation est un dict avec la clé "continuous"
+        obs_continuous = np.stack([obs['continuous'] for obs in obs_batch], axis=0)
+        actions = np.stack(actions_batch, axis=0)
+        
+        # Conversion en tenseurs (et transfert sur device)
+        obs_tensor = torch.tensor(obs_continuous, dtype=torch.float32, device=device)
+        actions_tensor = torch.tensor(actions, dtype=torch.float32, device=device)
+        
+        # Reconstruit la distribution (Normal -> Tanh)
+        # 'normal_dist' est déjà implémenté dans l'acteur via actor.normal_dist()
+        normal_dist = actor.normal_dist(obs_tensor)
+        tanh_dist = TransformedDistribution(normal_dist, [actor.tanh_transform])
+
+        # On peut clamper légèrement les actions si elles peuvent être exactement -1 ou +1
+        actions_tensor_clamped = torch.clamp(actions_tensor, -1.0 + 1e-6, 1.0 - 1e-6)
+        
+        # Calcul de la log-probabilité des actions démonstration
+        log_probs = tanh_dist.log_prob(actions_tensor_clamped)
+
+        # Perte = - log-likelihood moyenne
+        loss = -log_probs.mean()
+        
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        
+        # Logger
+        logger.add_log("pretraining_actor_loss", loss, it)
+        
+        # Print pour debug
+        if it % 1000 == 0:
+            print(f"[Behavioral Cloning] it {it}/{num_iterations}, loss: {loss.item():.4f}")
+
 def run_sac(sac: SACAlgo, compute_critic_loss, compute_actor_loss, setup_entropy_optimizers):
     
     mod_path = Path(inspect.getfile(get_wrappers)).parent
@@ -173,7 +232,16 @@ def run_sac(sac: SACAlgo, compute_critic_loss, compute_actor_loss, setup_entropy
     critic_optimizer = setup_optimizer(cfg.critic_optimizer, sac.critic_1, sac.critic_2)
     entropy_coef_optimizer, log_entropy_coef = setup_entropy_optimizers(cfg)
 
-
+    # --- Pré-entraînement par imitation ---
+    demo_data_path = "/home/alexis/SuperTuxKart/stk_actor/demo_data.pkl"
+    with open(demo_data_path, "rb") as f:
+        demo_data = pickle.load(f)
+    
+    print("Lancement du pré-entraînement (Behavioral Cloning) sur l'acteur...")
+    behavioral_cloning_pretraining(sac.actor, actor_optimizer, demo_data, logger, num_iterations=200000, batch_size=cfg.algorithm.batch_size)
+    print("Pré-entraînement terminé.")
+    torch.save(sac.actor.state_dict(), mod_path / "pystk_actor.pth")
+    
     # If entropy_mode is not auto, the entropy coefficient ent_coef remains
     # fixed. Otherwise, computes the target entropy
     if cfg.algorithm.entropy_mode == "auto":

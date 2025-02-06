@@ -24,7 +24,7 @@ from .TQC import run_tqc
 
 if __name__ == "__main__":
     
-    run_tqc(OmegaConf.create(params_TQC))
+    # run_tqc(OmegaConf.create(params_TQC))
     
     #ppo_clip = PPOClip(OmegaConf.create(params_ppo))
     #run(ppo_clip)
@@ -32,8 +32,8 @@ if __name__ == "__main__":
     #td3 = TD3(OmegaConf.create(params_td3))
     #run_td3(td3, compute_critic_loss, compute_actor_loss)
     
-    # sac = SACAlgo(OmegaConf.create(params_SAC))
-    # run_sac(sac, compute_critic_loss, compute_actor_loss, setup_entropy_optimizers)
+    sac = SACAlgo(OmegaConf.create(params_SAC))
+    run_sac(sac, compute_critic_loss, compute_actor_loss, setup_entropy_optimizers)
     
     #ddpg = DDPG(OmegaConf.create(params_ddpg))
     #run_ddpg(ddpg, compute_critic_loss, compute_actor_loss)

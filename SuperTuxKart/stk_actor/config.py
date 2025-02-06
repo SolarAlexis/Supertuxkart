@@ -133,11 +133,11 @@ params_SAC = {
         "max_epochs": 500, #250
         "discount_factor": 0.99,
         "entropy_mode": "auto",  # "auto" or "fixed"
-        "init_entropy_coef": 0.1,
+        "init_entropy_coef": 0.001,
         "tau_target": 0.01,
         "architecture": {
-            "actor_hidden_size": [400, 300],
-            "critic_hidden_size": [400, 300],
+            "actor_hidden_size": [256, 256],
+            "critic_hidden_size": [256, 256],
         },
     },
     "gym_env": {"env_name": "supertuxkart/flattened_continuous_actions-v0"},
@@ -179,7 +179,7 @@ params_ppo = {
         "batch_size": 256,
         "clip_range": 0.2,
         "clip_range_vf": 0,
-        "entropy_coef": 0.1, #2e-7
+        "entropy_coef": 0.01, #2e-7
         "policy_coef": 1,
         "critic_coef": 1.0,
         "policy_type": "DiscretePolicy",
@@ -222,7 +222,7 @@ params_TQC={
     "learning_starts": 10000,
     "max_epochs": 1000, #1000
     "discount_factor": 0.99,
-    "entropy_coef": 1e-2,
+    "entropy_coef": 1e-3,
     "target_entropy": "auto",
     "tau_target": 0.005,
     "top_quantiles_to_drop": 2,
@@ -239,11 +239,11 @@ params_TQC={
     },
   "actor_optimizer":{
     "classname": "torch.optim.Adam",
-    "lr": 3e-4,
+    "lr": 1e-3,
     },
   "critic_optimizer":{
     "classname": "torch.optim.Adam",
-    "lr": 3e-4,
+    "lr": 5e-5,
     },
   "entropy_coef_optimizer":{
     "classname": "torch.optim.Adam",

@@ -257,7 +257,6 @@ class SquashedGaussianActor(Agent):
         log_prob = torch.clamp(action_dist.log_prob(action), max=0)
         # This line allows to deepcopy the actor...
         self.tanh_transform._cached_x_y = [None, None]
-        print(action)
         self.set(("action", t), action)
         self.set(("action_logprobs", t), log_prob)
         
