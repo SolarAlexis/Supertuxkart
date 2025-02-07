@@ -156,7 +156,7 @@ pygame.quit()
 # Sauvegarde des démonstrations
 # =============================================================================
 
-save_path = "/home/alexis/SuperTuxKart/stk_actor/demo_data.pkl"
+save_path = "/home/alexis/SuperTuxKart/stk_actor/demo_data3.pkl"
 with open(save_path, "wb") as f:
     pickle.dump(demo_data, f)
 
