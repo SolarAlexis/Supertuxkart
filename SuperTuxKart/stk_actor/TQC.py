@@ -440,4 +440,7 @@ def run_tqc(cfg):
                 torch.save(actor.state_dict(), mod_path / "pystk_actor.pth")
             
             torch.save(actor.state_dict(), mod_path / "pystk_actor.pth")
+            torch.save(critic.state_dict(), mod_path / "pystk_critic.pth")
             
+    torch.save(actor.state_dict(), mod_path / "pystk_actor.pth")
+    torch.save(critic.state_dict(), mod_path / "pystk_critic.pth")

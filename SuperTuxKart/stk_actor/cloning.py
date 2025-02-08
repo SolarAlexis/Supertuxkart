@@ -88,7 +88,7 @@ clock = pygame.time.Clock()
 
 demo_data = []  # Liste pour stocker les transitions
 episode = 0
-max_episodes = 20  # Nombre d'épisodes de démonstration à collecter
+max_episodes = 25  # Nombre d'épisodes de démonstration à collecter
 
 print("Contrôlez le kart avec les flèches :")
 print(" - Haut : accélérer doucement")
@@ -107,17 +107,23 @@ while running and episode < max_episodes:
     keys = pygame.key.get_pressed()
     acc = -0.6
     steer = 0.0
+    
+    alpha = 0.3  # Facteur de lissage (plus c'est bas, plus c'est smooth)
+    steer_target = 0.0
+    
     if keys[pygame.K_z]:
         acc = -0.6    # accélération réduite pour une conduite plus douce
     if keys[pygame.K_m]:
         acc = 0.5     # boost
     if keys[pygame.K_s]:
-        acc = -0.9    # freinage moins brutal
+        acc = -0.94    # freinage moins brutal
     if keys[pygame.K_q]:
-        steer = -0.45 # tourner à gauche en douceur
+        steer_target = -1.0 # tourner à gauche en douceur
     if keys[pygame.K_d]:
-        steer = 0.45  # tourner à droite en douceur
+        steer_target = 1.0  # tourner à droite en douceur
 
+    steer = (1 - alpha) * steer + alpha * steer_target
+    
     # Construire l'action (vecteur à 2 composantes)
     action = np.array([acc, steer])
     

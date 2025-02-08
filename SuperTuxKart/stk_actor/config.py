@@ -210,19 +210,19 @@ params_TQC={
 
   "algorithm":{
     "seed": 1,
-    "n_envs": 8,
-    "n_steps": 128,
-    "n_updates": 10,
+    "n_envs": 4,
+    "n_steps": 256,
+    "n_updates": 20,
     "buffer_size": 1e6,
     "batch_size": 256,
     "max_grad_norm": 0.5,
-    "nb_evals": 16,
-    "eval_steps" : 500,
-    "eval_interval": 25000,
-    "learning_starts": 10000,
-    "max_epochs": 500, #1000
+    "nb_evals": 32,
+    "eval_steps" : 1000,
+    "eval_interval": 100_000,
+    "learning_starts": 10_000,
+    "max_epochs": 1500, #1000
     "discount_factor": 0.99,
-    "entropy_coef": 1e-5,
+    "entropy_coef": 0.01,
     "target_entropy": "auto",
     "tau_target": 0.05,
     "top_quantiles_to_drop": 2,
