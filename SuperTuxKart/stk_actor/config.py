@@ -207,12 +207,15 @@ params_TQC={
     "every_n_seconds": 10,
     "verbose": False,    
     },
-
+  
+  "pretraining": False,
+  "load_model" : True,
+  
   "algorithm":{
     "seed": 1,
     "n_envs": 4,
     "n_steps": 256,
-    "n_updates": 20,
+    "n_updates": 10,
     "buffer_size": 1e6,
     "batch_size": 256,
     "max_grad_norm": 0.5,
@@ -220,9 +223,9 @@ params_TQC={
     "eval_steps" : 1000,
     "eval_interval": 100_000,
     "learning_starts": 10_000,
-    "max_epochs": 1500, #1000
+    "max_epochs": 510, #1000
     "discount_factor": 0.99,
-    "entropy_coef": 0.01,
+    "entropy_coef": 0.01, #1e-5
     "target_entropy": "auto",
     "tau_target": 0.05,
     "top_quantiles_to_drop": 2,

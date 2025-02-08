@@ -269,15 +269,20 @@ def run_tqc(cfg):
     actor_optimizer, critic_optimizer = setup_optimizers(cfg, actor, critic)
     entropy_coef_optimizer, log_entropy_coef = setup_entropy_optimizers(cfg)
 
-    # --- Pré-entraînement par imitation ---
-    demo_data_path = "/home/alexis/SuperTuxKart/stk_actor/demo_data.pkl"
-    with open(demo_data_path, "rb") as f:
-        demo_data = pickle.load(f)
+    if cfg.pretraining:
+        # --- Pré-entraînement par imitation ---
+        demo_data_path = "/home/alexis/SuperTuxKart/stk_actor/demo_data.pkl"
+        with open(demo_data_path, "rb") as f:
+            demo_data = pickle.load(f)
+        
+        print("Lancement du pré-entraînement (Behavioral Cloning) sur l'acteur...")
+        behavioral_cloning_pretraining(actor, actor_optimizer, demo_data, logger, num_iterations=200000, batch_size=cfg.algorithm.batch_size)
+        print("Pré-entraînement terminé.")
+        torch.save(actor.state_dict(), mod_path / "pystk_actor.pth")
     
-    print("Lancement du pré-entraînement (Behavioral Cloning) sur l'acteur...")
-    behavioral_cloning_pretraining(actor, actor_optimizer, demo_data, logger, num_iterations=200000, batch_size=cfg.algorithm.batch_size)
-    print("Pré-entraînement terminé.")
-    torch.save(actor.state_dict(), mod_path / "pystk_actor.pth")
+    if cfg.load_model:
+        actor.load_state_dict(torch.load(mod_path / "pystk_actorTQC.pth", weights_only=True))
+        critic.load_state_dict(torch.load(mod_path / "pystk_criticTQC.pth", weights_only=True))
     
     t_actor = TemporalAgent(actor)
     q_agent = TemporalAgent(critic)
