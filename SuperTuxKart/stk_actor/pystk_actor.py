@@ -9,7 +9,7 @@ from .actors import SquashedGaussianActorTQC, DiscreteQAgent, ArgmaxActionSelect
 env_name = "supertuxkart/flattened_continuous_actions-v0"
 
 #: Player name
-player_name = "SupramaXx"
+player_name = "Trop2vitesse"
 
 
 # def get_actor(
