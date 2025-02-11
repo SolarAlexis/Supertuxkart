@@ -17,8 +17,8 @@ from omegaconf import OmegaConf
 from .pystk_actor import env_name, get_wrappers, player_name
 from .config import params_dqn, params_ddpg, params_SAC, params_td3, params_ppo, params_TQC
 from .dqn import DQN, run_dqn, dqn_compute_critic_loss_autoreset_multidiscrete, ddqn_compute_critic_loss_autoreset_multidiscrete
-#from .ddpg import DDPG, run_ddpg, compute_actor_loss, compute_critic_loss, TD3, run_td3
-from .SAC import SACAlgo, run_sac, compute_critic_loss, compute_actor_loss, setup_entropy_optimizers
+from .ddpg import DDPG, run_ddpg, compute_actor_loss, compute_critic_loss, TD3, run_td3
+# from .SAC import SACAlgo, run_sac, compute_critic_loss, compute_actor_loss, setup_entropy_optimizers
 from .ppo import PPOClip, run
 from .TQC import run_tqc
 
@@ -29,8 +29,8 @@ if __name__ == "__main__":
     #ppo_clip = PPOClip(OmegaConf.create(params_ppo))
     #run(ppo_clip)
     
-    #td3 = TD3(OmegaConf.create(params_td3))
-    #run_td3(td3, compute_critic_loss, compute_actor_loss)
+    # td3 = TD3(OmegaConf.create(params_td3))
+    # run_td3(td3, compute_critic_loss, compute_actor_loss)
     
     # sac = SACAlgo(OmegaConf.create(params_SAC))
     # run_sac(sac, compute_critic_loss, compute_actor_loss, setup_entropy_optimizers)

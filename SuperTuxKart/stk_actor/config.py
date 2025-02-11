@@ -76,32 +76,30 @@ params_ddpg = {
 params_td3 = {
     "save_best": False,
     "base_dir": "${gym_env.env_name}/td3-S${algorithm.seed}_${current_time:}",
-    "collect_stats": True,
+    "collect_stats": False,
     # Set to true to have an insight on the learned policy
     # (but slows down the evaluation a lot!)
     "plot_agents": False,
-    "coef_steer_penalty": 10,
-    "coef_extreme_steer_penalty": 20,
-    "coef_acceleration_penalty": 5,
+    "pretraining": True,
     "algorithm": {
         "seed": 1,
         "max_grad_norm": 0.5,
         "epsilon": 0.02,
-        "n_envs": 64,
-        "n_steps": 2,
+        "n_envs": 4,
+        "n_steps": 25,
         "nb_evals": 7,
-        "discount_factor": 0.99,
-        "buffer_size": 260_000, #1e6
-        "batch_size": 512,
-        "tau_target": 0.001,
-        "eval_interval": 60_000,
-        "max_epochs": 2000,
+        "discount_factor": 0.98,
+        "buffer_size": 1e6, #1e6
+        "batch_size": 256,
+        "tau_target": 0.05,
+        "eval_interval": 100_000,
+        "max_epochs": 1500,
         # Minimum number of transitions before learning starts
-        "learning_starts": 15_000,
-        "action_noise": 0.4,
+        "learning_starts": 10_000,
+        "action_noise": 0.1,
         "architecture": {
-            "actor_hidden_size": [256, 128],
-            "critic_hidden_size": [256, 256],
+            "actor_hidden_size": [400, 300],
+            "critic_hidden_size": [400, 300],
         },
     },
     "gym_env": {
@@ -109,11 +107,11 @@ params_td3 = {
     },
     "actor_optimizer": {
         "classname": "torch.optim.Adam",
-        "lr": 1e-4,
+        "lr": 1e-3,
     },
     "critic_optimizer": {
         "classname": "torch.optim.Adam",
-        "lr": 5e-4,
+        "lr": 1e-3,
     },
 }
 
@@ -215,7 +213,7 @@ params_TQC={
     "seed": 1,
     "n_envs": 4,
     "n_steps": 256,
-    "n_updates": 10,
+    "n_updates": 20,
     "buffer_size": 1e6,
     "batch_size": 256,
     "max_grad_norm": 0.5,
@@ -223,7 +221,7 @@ params_TQC={
     "eval_steps" : 1000,
     "eval_interval": 100_000,
     "learning_starts": 10_000,
-    "max_epochs": 510, #1000
+    "max_epochs": 1010, #1000
     "discount_factor": 0.99,
     "entropy_coef": 0.01, #1e-5
     "target_entropy": "auto",

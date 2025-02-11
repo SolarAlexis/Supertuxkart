@@ -1,10 +1,13 @@
 import copy
 from pathlib import Path
 import inspect
+import pickle
 
 import torch
 import torch.nn as nn
+import numpy as np
 from bbrl.agents import Agent, Agents, TemporalAgent
+from bbrl.workspace import Workspace
 from bbrl_utils.algorithms import EpochBasedAlgo
 from bbrl_utils.nn import setup_optimizer, soft_update_params
 from bbrl.visu.plot_policies import plot_policy
@@ -41,19 +44,9 @@ def compute_critic_loss(cfg, reward: torch.Tensor, must_bootstrap: torch.Tensor,
 
     return critic_loss
 
-def compute_actor_loss(q_values, actions, coef_steer_penalty=params_td3["coef_steer_penalty"], coef_extreme_steer_penalty=params_td3["coef_extreme_steer_penalty"], coef_acceleration_penalty=params_td3["coef_acceleration_penalty"]):
-    # Extraire la dimension "steer" (deuxième colonne)
-    steer = actions[:, 1] 
-    acceleration = actions[:, 0] 
+def compute_actor_loss(q_values):
     
-    # Pénalité pour les valeurs de "steer" proches de -1 ou 1
-    steer_penalty = torch.mean(torch.abs(steer))  # Moyenne de |steer|
-    extreme_steer_penalty = torch.mean(torch.where(torch.abs(steer) > 0.9, torch.abs(steer), torch.tensor(0.0)))
-    acceleration_penalty = 1 - torch.mean(torch.where(acceleration < 0.5, acceleration, torch.tensor(1.0)))
-    
-    # Perte de l'acteur avec pénalité sur "steer" et "acceleration"
-    actor_loss = -torch.mean(q_values) + coef_steer_penalty * steer_penalty + coef_extreme_steer_penalty * extreme_steer_penalty + coef_acceleration_penalty * acceleration_penalty
-    return actor_loss
+    return -torch.mean(q_values)
 
 class DDPG(EpochBasedAlgo):
     def __init__(self, cfg, render_mode=None):
@@ -212,11 +205,88 @@ class TD3(EpochBasedAlgo):
         self.actor_optimizer = setup_optimizer(cfg.actor_optimizer, self.actor)
         self.critic_1_optimizer = setup_optimizer(cfg.critic_optimizer, self.critic_1)
         self.critic_2_optimizer = setup_optimizer(cfg.critic_optimizer, self.critic_2)
+
+class InitAgent(Agent):
+    """ The agent to initialize the sequence of numbers."""
+    
+    def __init__(self, obs, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.obs = obs
+        
+    def forward(self, **kwargs):
+        self.set(("env/env_obs/continuous", 0), self.obs)
+
+def behavioral_cloning_pretraining_td3(actor, optimizer, demo_data, logger, num_iterations=100000, batch_size=256):
+    """
+    Pré-entraînement de l'acteur de TD3 par imitation (Behavioral Cloning) en utilisant
+    les démonstrations collectées.
+    
+    Cette fonction suppose que :
+      - L'acteur est déterministe (par exemple, ContinuousDeterministicActor) et renvoie directement l'action.
+      - Chaque transition de demo_data est un dictionnaire contenant au moins :
+          - 'obs': un dictionnaire avec la clé "continuous"
+          - 'action': l'action démonstrative associée.
+    
+    :param actor: l'acteur à pré-entraîner
+    :param optimizer: l'optimizer utilisé pour l'acteur (ex: Adam)
+    :param demo_data: liste des transitions de démonstration
+    :param logger: objet logger pour enregistrer les valeurs de loss
+    :param num_iterations: nombre total d'itérations de pré-entraînement
+    :param batch_size: taille du mini-batch
+    """
+    actor.train()
+    mse_loss = nn.MSELoss()
+    device = next(actor.parameters()).device
+
+    train_workspace = Workspace()
+    t_agent = TemporalAgent(actor)
+
+    for it in range(num_iterations):
+        # Sélection aléatoire d'un mini-batch
+        indices = np.random.choice(len(demo_data), batch_size, replace=True)
+        obs_batch = [demo_data[i]['obs'] for i in indices]
+        actions_batch = [demo_data[i]['action'] for i in indices]
+        
+        # Extraction et empilement des observations "continuous"
+        obs_continuous = np.stack([obs['continuous'] for obs in obs_batch], axis=0)
+        actions = np.stack(actions_batch, axis=0)
+        
+        # Conversion en tenseurs et transfert sur le même device que l'acteur
+        obs_tensor = torch.tensor(obs_continuous, dtype=torch.float32, device=device)
+        actions_tensor = torch.tensor(actions, dtype=torch.float32, device=device)
+        
+        init_agent = TemporalAgent(Agents(InitAgent(obs_tensor)))
+        init_agent(train_workspace, t=0, n_steps=1)
+        t_agent(train_workspace, t=0, n_steps=1)
+        predicted_actions = train_workspace["action"][0]
+        
+        # Calcul de la loss par rapport à l'action démonstrative (MSE)
+        loss = mse_loss(predicted_actions, actions_tensor)
+        
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        
+        logger.add_log("pretraining_actor_loss", loss, it)
+        
+        if it % 1000 == 0:
+            print(f"TD3 Behavioral Cloning Pretraining it {it}/{num_iterations}, loss: {loss.item():.4f}")
         
 def run_td3(td3: TD3, compute_critic_loss, compute_actor_loss):
     
     mod_path = Path(inspect.getfile(get_wrappers)).parent
     i = 1
+    
+    if td3.cfg.pretraining:
+        # --- Pré-entraînement par imitation ---
+        demo_data_path = "/home/alexis/SuperTuxKart/stk_actor/demo_data.pkl"
+        with open(demo_data_path, "rb") as f:
+            demo_data = pickle.load(f)
+        
+        print("Lancement du pré-entraînement (Behavioral Cloning) sur l'acteur...")
+        behavioral_cloning_pretraining_td3(td3.actor, td3.actor_optimizer, demo_data, td3.logger, num_iterations=200000, batch_size=td3.cfg.algorithm.batch_size)
+        print("Pré-entraînement terminé.")
+        torch.save(td3.actor.state_dict(), mod_path / "pystk_actor.pth")
     
     for rb in td3.iter_replay_buffers():
         rb_workspace = rb.get_shuffled(td3.cfg.algorithm.batch_size)
@@ -260,8 +330,7 @@ def run_td3(td3: TD3, compute_critic_loss, compute_actor_loss):
         td3.actor(rb_workspace, t=0)
         td3.critic_1(rb_workspace,t=0)
         q_values = rb_workspace["critic_1/q_value"]
-        actions = rb_workspace["action"][0]
-        actor_loss = compute_actor_loss(q_values, actions)
+        actor_loss = compute_actor_loss(q_values)
         td3.logger.add_log("actor_loss", actor_loss, td3.nb_steps)
         
         # Gradient step (actor)

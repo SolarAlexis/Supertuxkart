@@ -16,7 +16,7 @@ player_name = "GGEZWIN"
 #     state, observation_space: gym.spaces.Space, action_space: gym.spaces.Space
 # ) -> Agent:
 #     actor = ContinuousDeterministicActor(
-#             observation_space, [256, 128], action_space
+#             observation_space, [400, 300], action_space
 #         )
 
 #     if state is None:
