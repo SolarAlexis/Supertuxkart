@@ -213,17 +213,17 @@ params_TQC={
     "seed": 1,
     "n_envs": 4,
     "n_steps": 256,
-    "n_updates": 20,
+    "n_updates": 10,
     "buffer_size": 1e6,
     "batch_size": 256,
     "max_grad_norm": 0.5,
-    "nb_evals": 32,
-    "eval_steps" : 1000,
+    "nb_evals": 16,
+    "eval_steps" : 500,
     "eval_interval": 100_000,
     "learning_starts": 10_000,
     "max_epochs": 1010, #1000
     "discount_factor": 0.99,
-    "entropy_coef": 0.01, #1e-5
+    "entropy_coef": 1e-7, #1e-5
     "target_entropy": "auto",
     "tau_target": 0.05,
     "top_quantiles_to_drop": 2,
@@ -240,14 +240,14 @@ params_TQC={
     },
   "actor_optimizer":{
     "classname": "torch.optim.Adam",
-    "lr": 1e-3,
+    "lr": 1e-3, #1e-3
     },
   "critic_optimizer":{
     "classname": "torch.optim.Adam",
-    "lr": 1e-3,
+    "lr": 1e-3, #1e-3
     },
   "entropy_coef_optimizer":{
     "classname": "torch.optim.Adam",
-    "lr": 1e-3,
+    "lr": 1e-3, #1e-3
     }
 }
