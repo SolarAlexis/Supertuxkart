@@ -158,13 +158,12 @@ class ContinuousDeterministicActor(Agent):
         obs = self.get(("env/env_obs/continuous", t))
         action = self.model(obs)
         
-        low = torch.tensor(self.action_space.low, dtype=action.dtype)
-        high = torch.tensor(self.action_space.high, dtype=action.dtype)
-        scaled_action = low + (high - low) * (action + 1) / 2
+        # low = torch.tensor(self.action_space.low, dtype=action.dtype)
+        # high = torch.tensor(self.action_space.high, dtype=action.dtype)
+        # scaled_action = low + (high - low) * (action + 1) / 2
         
-        assert torch.all(scaled_action >= low) and torch.all(scaled_action <= high), "Actions out of bounds!"
-        print("action", scaled_action)
-        self.set(("action", t), scaled_action)
+        assert torch.all(action >= -1) and torch.all(action <= 1), "Actions out of bounds!"
+        self.set(("action", t), action)
         
 class AddGaussianNoise(Agent):
     def __init__(self, sigma):
