@@ -216,7 +216,9 @@ def run(ppo_clip: PPOClip):
         
         if i == 20:
             torch.save(ppo_clip.eval_policy.state_dict(), mod_path / "pystk_actor.pth")
+            torch.save(ppo_clip.critic_agent.state_dict(), mod_path / "pystk_critic.pth")
             i = 0
         i+=1
     
     torch.save(ppo_clip.eval_policy.state_dict(), mod_path / "pystk_actor.pth")
+    torch.save(ppo_clip.critic_agent.state_dict(), mod_path / "pystk_critic.pth")

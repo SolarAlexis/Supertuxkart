@@ -281,8 +281,8 @@ def run_tqc(cfg):
         torch.save(actor.state_dict(), mod_path / "pystk_actor.pth")
     
     if cfg.load_model:
-        actor.load_state_dict(torch.load(mod_path / "pystk_actorTQC3.pth", weights_only=True))
-        critic.load_state_dict(torch.load(mod_path / "pystk_criticTQC3.pth", weights_only=True))
+        actor.load_state_dict(torch.load(mod_path / "pystk_actorTQC4.pth", weights_only=True))
+        critic.load_state_dict(torch.load(mod_path / "pystk_criticTQC4.pth", weights_only=True))
     
     t_actor = TemporalAgent(actor)
     q_agent = TemporalAgent(critic)

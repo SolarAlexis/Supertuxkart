@@ -4,11 +4,11 @@
 import gymnasium as gym
 from pystk2_gymnasium import AgentSpec
 
-from .pystk_actor import get_wrappers
+#from .pystk_actor import get_wrappers
 
 # STK gymnasium uses one process
 if __name__ == '__main__':
-  env_name = "supertuxkart/flattened_continuous_actions-v0"
+  env_name = "supertuxkart/flattened_discrete-v0"
   env = gym.make(env_name, render_mode="human", agent=AgentSpec(use_ai=False))
 
   ix = 0

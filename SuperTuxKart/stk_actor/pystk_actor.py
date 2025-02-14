@@ -7,6 +7,7 @@ from .actors import SquashedGaussianActorTQC, DiscreteQAgent, ArgmaxActionSelect
 
 #: The base environment name
 env_name = "supertuxkart/flattened_continuous_actions-v0"
+env_name = "supertuxkart/flattened_discrete-v0"
 
 #: Player name
 player_name = "GGEZWIN"
@@ -78,10 +79,11 @@ def get_wrappers() -> List[Callable[[gym.Env], gym.Wrapper]]:
     return [
         # Example of a custom wrapper
         #lambda env: MyWrapper(env, option="1")
-        lambda env: FeatureFilterWrapper(env, [0, 
-        1, 7, 11, 12, 13, 14, 15, 16, 17, 18, 19,
-        20, 21, 22, 23, 24, 25, 87, 88]),
-        lambda env: MyActionRescaleWrapper(env)
+        
+        # lambda env: FeatureFilterWrapper(env, [0, 
+        # 1, 7, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+        # 20, 21, 22, 23, 24, 25, 87, 88]),
+        # lambda env: MyActionRescaleWrapper(env)
     ]
 
 if __name__ == "__main__":

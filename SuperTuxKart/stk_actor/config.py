@@ -166,24 +166,24 @@ params_ppo = {
         "seed": 12,
         "max_grad_norm": 0.5,
         "n_envs": 8,
-        "n_steps": 128,
-        "eval_interval": 40_000,
+        "n_steps": 32,
+        "eval_interval": 100_000,
         "nb_evals": 7,
-        "gae": 0.95,
-        "discount_factor": 0.99,
+        "gae": 0.8,
+        "discount_factor": 0.98,
         "normalize_advantage": True,
-        "max_epochs": 320,
+        "max_epochs": 5_000,
         "opt_epochs": 10,
         "batch_size": 256,
         "clip_range": 0.2,
         "clip_range_vf": 0,
-        "entropy_coef": 0.01, #2e-7
+        "entropy_coef": 2e-7, #2e-7
         "policy_coef": 1,
         "critic_coef": 1.0,
         "policy_type": "DiscretePolicy",
         "architecture": {
-            "actor_hidden_size": [256, 256],
-            "critic_hidden_size": [256, 256],
+            "actor_hidden_size": [128, 128],
+            "critic_hidden_size": [128, 128],
         },
     },
     "gym_env": {
@@ -211,8 +211,8 @@ params_TQC={
   
   "algorithm":{
     "seed": 1,
-    "n_envs": 4,
-    "n_steps": 256,
+    "n_envs": 1,
+    "n_steps": 512,
     "n_updates": 10,
     "buffer_size": 1e6,
     "batch_size": 256,
@@ -221,7 +221,7 @@ params_TQC={
     "eval_steps" : 500,
     "eval_interval": 100_000,
     "learning_starts": 10_000,
-    "max_epochs": 1010, #1000
+    "max_epochs": 2020, #1000
     "discount_factor": 0.99,
     "entropy_coef": 1e-7, #1e-5
     "target_entropy": "auto",
