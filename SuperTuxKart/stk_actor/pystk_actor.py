@@ -65,7 +65,7 @@ def get_actor(
     state, observation_space: gym.spaces.Space, action_space: gym.spaces.Space
 ) -> Agent:
     actor = SquashedGaussianActorTQC(
-            observation_space, [64, 64], action_space
+            observation_space, [32, 32], action_space
         )
 
     if state is None:
@@ -82,7 +82,8 @@ def get_wrappers() -> List[Callable[[gym.Env], gym.Wrapper]]:
         #lambda env: MyWrapper(env, option="1")
         
         lambda env: FeatureFilterWrapper(env, [0, 
-        1, 7, 87, 88]),
+        1, 7, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+        20, 21, 22, 23, 24, 25, 87, 88]),
         lambda env: MyActionRescaleWrapper(env)
     ]
 
