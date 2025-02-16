@@ -24,10 +24,10 @@ from .TQC import run_tqc
 
 if __name__ == "__main__":
     
-    #run_tqc(OmegaConf.create(params_TQC))
+    run_tqc(OmegaConf.create(params_TQC))
     
-    ppo_clip = PPOClip(OmegaConf.create(params_ppo))
-    run(ppo_clip)
+    # ppo_clip = PPOClip(OmegaConf.create(params_ppo))
+    # run(ppo_clip)
     
     # td3 = TD3(OmegaConf.create(params_td3))
     # run_td3(td3, compute_critic_loss, compute_actor_loss)

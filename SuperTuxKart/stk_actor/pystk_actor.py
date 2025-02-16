@@ -7,7 +7,7 @@ from .actors import SquashedGaussianActorTQC, DiscreteQAgent, ArgmaxActionSelect
 
 #: The base environment name
 env_name = "supertuxkart/flattened_continuous_actions-v0"
-env_name = "supertuxkart/flattened_discrete-v0"
+# env_name = "supertuxkart/flattened_discrete-v0"
 
 #: Player name
 player_name = "GGEZWIN"
@@ -44,27 +44,28 @@ player_name = "GGEZWIN"
 # ) -> Agent:
 #     actor = DiscretePolicy(
 #             observation_space,
-#             [256, 256],
+#             [256, 256, 256],
 #             action_space,
 #         )
 
 #     if state is None:
 #         raise ValueError("No state available")
 
+#     actor.load_state_dict(state)
+    
 #     actor = KWAgentWrapper(
 #             actor, 
 #             stochastic=False,
 #             predict_proba=False,
 #             compute_entropy=False,
 #         )
-#     actor.load_state_dict(state)
 #     return actor
 
 def get_actor(
     state, observation_space: gym.spaces.Space, action_space: gym.spaces.Space
 ) -> Agent:
     actor = SquashedGaussianActorTQC(
-            observation_space, [32, 32], action_space
+            observation_space, [64, 64], action_space
         )
 
     if state is None:
@@ -80,10 +81,9 @@ def get_wrappers() -> List[Callable[[gym.Env], gym.Wrapper]]:
         # Example of a custom wrapper
         #lambda env: MyWrapper(env, option="1")
         
-        # lambda env: FeatureFilterWrapper(env, [0, 
-        # 1, 7, 11, 12, 13, 14, 15, 16, 17, 18, 19,
-        # 20, 21, 22, 23, 24, 25, 87, 88]),
-        # lambda env: MyActionRescaleWrapper(env)
+        lambda env: FeatureFilterWrapper(env, [0, 
+        1, 7, 87, 88]),
+        lambda env: MyActionRescaleWrapper(env)
     ]
 
 if __name__ == "__main__":

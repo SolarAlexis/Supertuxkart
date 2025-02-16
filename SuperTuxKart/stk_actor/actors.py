@@ -289,13 +289,37 @@ class ContinuousQAgent(Agent):
 
 # PPO part ---------------------------------------------------------------
 
+def build_ortho_mlp(sizes, activation, output_activation=nn.Identity(), use_layer_norm=True):
+    """
+    Construit un MLP avec initialisation orthogonale et option de normalisation par couche (LayerNorm)
+    sur les couches cachées.
+    """
+    layers = []
+    for j in range(len(sizes) - 1):
+        linear = nn.Linear(sizes[j], sizes[j+1])
+        # Initialisation orthogonale
+        gain = nn.init.calculate_gain(activation.__class__.__name__.lower()) if j < len(sizes)-2 else 1.0
+        nn.init.orthogonal_(linear.weight, gain=gain)
+        nn.init.constant_(linear.bias, 0)
+        layers.append(linear)
+        # Ajouter LayerNorm seulement pour les couches cachées
+        if use_layer_norm and j < len(sizes) - 2:
+            layers.append(nn.LayerNorm(sizes[j+1]))
+        # Appliquer l'activation (output_activation sur la dernière couche)
+        act = activation if j < len(sizes) - 2 else output_activation
+        layers.append(act)
+    return nn.Sequential(*layers)
+
 class VAgent(Agent):
     def __init__(self, state_dim, hidden_layers, name="critic"):
         super().__init__(name)
         self.is_q_function = False
+        # On combine les dimensions des observations continues et discrètes
         input_size = state_dim["continuous"].shape[0] + len(state_dim["discrete"])
         self.model = build_ortho_mlp(
-            [input_size] + list(hidden_layers) + [1], activation=nn.ReLU()
+            [input_size] + list(hidden_layers) + [1],
+            activation=nn.ReLU(),
+            use_layer_norm=True 
         )
 
     def forward(self, t, **kwargs):
@@ -311,7 +335,9 @@ class DiscretePolicy(Agent):
         input_size = state_dim["continuous"].shape[0] + len(state_dim["discrete"])
         action_space_size = n_actions.n
         self.model = build_ortho_mlp(
-            [input_size] + list(hidden_size) + [action_space_size], activation=nn.ReLU()
+            [input_size] + list(hidden_size) + [action_space_size],
+            activation=nn.ReLU(),
+            use_layer_norm=True
         )
 
     def dist(self, obs):
@@ -346,7 +372,6 @@ class DiscretePolicy(Agent):
             action = self.get(("action", t))
             log_probs = (probs + 1e-8).log()[torch.arange(probs.size(0)), action]
             assert torch.isfinite(log_probs).all(), "Log_probs contain NaN or Inf"
-            print(log_probs)
             self.set((f"{self.prefix}logprob_predict", t), log_probs)
         else:
             if stochastic:

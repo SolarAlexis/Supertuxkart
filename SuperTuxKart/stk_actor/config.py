@@ -162,32 +162,34 @@ params_ppo = {
         "every_n_seconds": 10,
         "verbose": False,
     },
+    "pretraining": True,
+    "load_model": False,
     "algorithm": {
         "seed": 12,
         "max_grad_norm": 0.5,
-        "n_envs": 8,
-        "n_steps": 32,
-        "eval_interval": 100_000,
-        "nb_evals": 7,
-        "gae": 0.8,
+        "n_envs": 4,
+        "n_steps": 128,
+        "eval_interval": 200_000,
+        "nb_evals": 16,
+        "gae": 0.95,
         "discount_factor": 0.98,
         "normalize_advantage": True,
         "max_epochs": 5_000,
         "opt_epochs": 10,
         "batch_size": 256,
         "clip_range": 0.2,
-        "clip_range_vf": 0,
-        "entropy_coef": 2e-7, #2e-7
+        "clip_range_vf": 0.2,
+        "entropy_coef": 1e-4, #2e-7
         "policy_coef": 1,
-        "critic_coef": 1.0,
+        "critic_coef": 0.5,
         "policy_type": "DiscretePolicy",
         "architecture": {
-            "actor_hidden_size": [128, 128],
-            "critic_hidden_size": [128, 128],
+            "actor_hidden_size": [256, 256, 256],
+            "critic_hidden_size": [256, 256, 256],
         },
     },
     "gym_env": {
-        "env_name": "supertuxkart/flattened_discrete-v0",
+        "env_name": "supertuxkart/flattened_discrete-v0"
     },
     "optimizer": {
         "classname": "torch.optim.AdamW",
@@ -206,30 +208,30 @@ params_TQC={
     "verbose": False,    
     },
   
-  "pretraining": False,
-  "load_model" : True,
+  "pretraining": True,
+  "load_model" : False,
   
   "algorithm":{
     "seed": 1,
-    "n_envs": 1,
-    "n_steps": 512,
+    "n_envs": 2,
+    "n_steps": 256,
     "n_updates": 10,
     "buffer_size": 1e6,
     "batch_size": 256,
     "max_grad_norm": 0.5,
     "nb_evals": 16,
     "eval_steps" : 500,
-    "eval_interval": 100_000,
+    "eval_interval": 200_000,
     "learning_starts": 10_000,
-    "max_epochs": 2020, #1000
-    "discount_factor": 0.99,
+    "max_epochs": 4000, #1000
+    "discount_factor": 0.98,
     "entropy_coef": 1e-7, #1e-5
     "target_entropy": "auto",
     "tau_target": 0.05,
     "top_quantiles_to_drop": 2,
     "architecture":{
-      "actor_hidden_size": [32, 32],
-      "critic_hidden_size": [256, 256], #[256, 256]
+      "actor_hidden_size": [64, 64],
+      "critic_hidden_size": [512, 512], #[256, 256]
       "n_nets": 2,
       "n_quantiles": 25,
     },

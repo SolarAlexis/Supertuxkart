@@ -8,7 +8,7 @@ from pystk2_gymnasium import AgentSpec
 
 # STK gymnasium uses one process
 if __name__ == '__main__':
-  env_name = "supertuxkart/flattened_discrete-v0"
+  env_name = "supertuxkart/flattened_continuous_actions-v0"
   env = gym.make(env_name, render_mode="human", agent=AgentSpec(use_ai=False))
 
   ix = 0
@@ -41,4 +41,5 @@ if __name__ == '__main__':
         print(env.observation_space["continuous"].shape)
         print(env.action_space)
         print(env.observation_space)
+        
   env.close()

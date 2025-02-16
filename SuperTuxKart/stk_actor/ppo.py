@@ -1,10 +1,14 @@
 import copy
 from pathlib import Path
 import inspect
+import pickle
 
 import torch
+import torch.nn as nn
+import numpy as np
 from bbrl_utils.algorithms import EpisodicAlgo, iter_partial_episodes
 from bbrl.agents import TemporalAgent, KWAgentWrapper
+from bbrl.workspace import Workspace
 from bbrl_utils.nn import setup_optimizer, copy_parameters
 from bbrl.utils.functional import gae
 from bbrl.agents.gymnasium import ParallelGymAgent, make_env
@@ -33,7 +37,7 @@ class PPOClip(EpisodicAlgo):
         obs_space = self.train_env.envs[0].observation_space
         action_space = self.train_env.envs[0].action_space
 
-        self.train_policy = globals()[cfg.algorithm.policy_type](
+        self.train_policy = DiscretePolicy(
             obs_space,
             cfg.algorithm.architecture.actor_hidden_size,
             action_space,
@@ -61,6 +65,116 @@ class PPOClip(EpisodicAlgo):
             cfg.optimizer, self.critic_agent
         )
         
+def pretraining_ppo(actor, critic, actor_optimizer, critic_optimizer, demo_data, logger,
+                    num_iterations=100000, batch_size=256, discount=0.98):
+    """
+    Pré-entraînement de l'acteur et du critic PPO à partir de démonstrations.
+
+    Pour l'acteur, on effectue du behavioral cloning en minimisant la cross-entropy
+    entre les logits prédits et l'action démonstrative.
+    
+    Pour le critic, on effectue une régression TD en ajustant V(s) vers la target :
+         target = reward + discount * V(next_obs) * (1 - done)
+
+    On utilise le Workspace et TemporalAgent pour alimenter les agents avec les observations.
+    
+    :param actor: l'agent policy (ex: instance de DiscretePolicy)
+    :param critic: l'agent critic (ex: instance de VAgent)
+    :param actor_optimizer: optimizer pour l'acteur
+    :param critic_optimizer: optimizer pour le critic
+    :param demo_data: liste des transitions de démonstration.
+                      Chaque élément doit être un dict avec :
+                        - "obs": dict avec "continuous" et "discrete"
+                        - "action": action démonstrative (entier)
+                        - "reward": reward (float)
+                        - "next_obs": dict avec "continuous" et "discrete"
+                        - "done": bool indiquant la fin d'épisode
+    :param logger: objet logger (doit posséder une méthode add_log)
+    :param num_iterations: nombre total d'itérations de pré-entraînement
+    :param batch_size: taille du mini-batch
+    :param discount: facteur de discount pour le critic
+    """
+    actor.train()
+    critic.train()
+    ce_loss = nn.CrossEntropyLoss()  # pour l'acteur
+    mse_loss = nn.MSELoss()            # pour le critic
+    device = next(actor.parameters()).device
+
+    t_actor = TemporalAgent(actor)
+    t_critic = TemporalAgent(critic)
+
+    for it in range(num_iterations):
+        # Sélection aléatoire d'un mini-batch
+        indices = np.random.choice(len(demo_data), batch_size, replace=True)
+        obs_batch = [demo_data[i]['obs'] for i in indices]
+        actions_batch = [demo_data[i]['action'] for i in indices]
+        rewards_batch = [demo_data[i]['reward'] for i in indices]
+        next_obs_batch = [demo_data[i]['next_obs'] for i in indices]
+        dones_batch = [1.0 if demo_data[i]['done'] else 0.0 for i in indices]
+
+        # Construction des tenseurs pour les observations (continuous & discrete)
+        obs_continuous = np.stack([obs["continuous"] for obs in obs_batch], axis=0)
+        obs_discrete = np.stack([obs["discrete"] for obs in obs_batch], axis=0)
+        next_obs_continuous = np.stack([obs["continuous"] for obs in next_obs_batch], axis=0)
+        next_obs_discrete = np.stack([obs["discrete"] for obs in next_obs_batch], axis=0)
+        
+        obs_cont_tensor = torch.tensor(obs_continuous, dtype=torch.float32, device=device)
+        obs_disc_tensor = torch.tensor(obs_discrete, dtype=torch.float32, device=device)
+        next_obs_cont_tensor = torch.tensor(next_obs_continuous, dtype=torch.float32, device=device)
+        next_obs_disc_tensor = torch.tensor(next_obs_discrete, dtype=torch.float32, device=device)
+        
+        # Actions (pour l'acteur, on suppose des indices entiers)
+        actions_tensor = torch.tensor(actions_batch, dtype=torch.long, device=device)
+        rewards_tensor = torch.tensor(rewards_batch, dtype=torch.float32, device=device)
+        dones_tensor = torch.tensor(dones_batch, dtype=torch.float32, device=device)
+        
+        # --- Pré-entraînement de l'acteur par Behavioral Cloning ---
+        # Remplissage du workspace avec les observations de l'état courant.
+        ws = Workspace()
+        ws.set("env/env_obs/continuous", 0, obs_cont_tensor)
+        ws.set("env/env_obs/discrete", 0, obs_disc_tensor)
+        
+        # Passage de l'agent acteur dans le workspace
+        t_actor(ws, t=0, n_steps=1)
+        # L'acteur doit mettre dans ws la clé "action" à l'instant 0.
+        predicted_actions = ws["action"][0]  # actions prédite(s) (indices)
+        # Pour le BC, on préfère utiliser directement les logits de l'acteur.
+        # On reconstruit l'observation comme concaténation.
+        observation = torch.cat([obs_cont_tensor, obs_disc_tensor], dim=1)
+        logits = actor.model(observation)  # [batch_size, n_actions]
+        actor_loss = ce_loss(logits, actions_tensor)
+        
+        # --- Pré-entraînement du critic par régression TD ---
+        # Calcul de V(s) pour l'état courant.
+        ws.set("env/env_obs/continuous", 0, obs_cont_tensor)
+        ws.set("env/env_obs/discrete", 0, obs_disc_tensor)
+        t_critic(ws, t=0, n_steps=1)
+        v_pred = ws["critic/v_values"][0]  # [batch_size]
+        
+        # Calcul de V(next_obs)
+        ws_next = Workspace()
+        ws_next.set("env/env_obs/continuous", 0, next_obs_cont_tensor)
+        ws_next.set("env/env_obs/discrete", 0, next_obs_disc_tensor)
+        t_critic(ws_next, t=0, n_steps=1)
+        v_next = ws_next["critic/v_values"][0].detach()
+        
+        # Calcul de la target TD
+        target = rewards_tensor + discount * v_next * (1 - dones_tensor)
+        critic_loss = mse_loss(v_pred, target)
+        
+        # --- Optimisation ---
+        actor_optimizer.zero_grad()
+        critic_optimizer.zero_grad()
+        total_loss = actor_loss + critic_loss
+        total_loss.backward()
+        actor_optimizer.step()
+        critic_optimizer.step()
+        
+        logger.add_log("pretraining_actor_loss", actor_loss, it)
+        logger.add_log("pretraining_critic_loss", critic_loss, it)
+        
+        if it % 1000 == 0:
+            print(f"Pretraining it {it}/{num_iterations}, actor_loss: {actor_loss.item():.4f}, critic_loss: {critic_loss.item():.4f}")
 
 def run(ppo_clip: PPOClip):
     
@@ -74,6 +188,21 @@ def run(ppo_clip: PPOClip):
     t_old_policy = TemporalAgent(ppo_clip.old_policy)
     t_critic = TemporalAgent(ppo_clip.critic_agent)
     t_old_critic = TemporalAgent(ppo_clip.old_critic_agent)
+    
+    if cfg.pretraining:
+        # --- Pré-entraînement par imitation ---
+        demo_data_path = "/home/alexis/SuperTuxKart/stk_actor/combined_demo_data.pkl"
+        with open(demo_data_path, "rb") as f:
+            demo_data = pickle.load(f)
+        
+        print("Lancement du pré-entraînement (Behavioral Cloning) sur l'acteur...")
+        pretraining_ppo(ppo_clip.train_policy, ppo_clip.critic_agent, ppo_clip.policy_optimizer, ppo_clip.critic_optimizer, demo_data, ppo_clip.logger, num_iterations=200000, batch_size=cfg.algorithm.batch_size)
+        print("Pré-entraînement terminé.")
+        torch.save(ppo_clip.train_policy.state_dict(), mod_path / "pystk_actor.pth")
+    
+    if cfg.load_model:
+        ppo_clip.train_policy.load_state_dict(torch.load(mod_path / "pystk_actor.pth", weights_only=True))
+        ppo_clip.critic_agent.load_state_dict(torch.load(mod_path / "pystk_critic.pth", weights_only=True))
 
     for train_workspace in iter_partial_episodes(
         ppo_clip, cfg.algorithm.n_steps
@@ -215,10 +344,10 @@ def run(ppo_clip: PPOClip):
         ppo_clip.evaluate()
         
         if i == 20:
-            torch.save(ppo_clip.eval_policy.state_dict(), mod_path / "pystk_actor.pth")
+            torch.save(ppo_clip.train_policy.state_dict(), mod_path / "pystk_actor.pth")
             torch.save(ppo_clip.critic_agent.state_dict(), mod_path / "pystk_critic.pth")
             i = 0
         i+=1
     
-    torch.save(ppo_clip.eval_policy.state_dict(), mod_path / "pystk_actor.pth")
+    torch.save(ppo_clip.train_policy.state_dict(), mod_path / "pystk_actor.pth")
     torch.save(ppo_clip.critic_agent.state_dict(), mod_path / "pystk_critic.pth")

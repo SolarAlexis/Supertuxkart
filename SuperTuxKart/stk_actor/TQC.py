@@ -202,51 +202,147 @@ def create_tqc_agent(cfg, train_env_agent, eval_env_agent):
         target_critic
     )
 
-def behavioral_cloning_pretraining(actor, optimizer, demo_data, logger, num_iterations=10000, batch_size=256):
-    """
-    Pré-entraînement de l'acteur par imitation (behavioral cloning) en utilisant
-    les démonstrations collectées.
+# def behavioral_cloning_pretraining(actor, optimizer, demo_data, logger, num_iterations=10000, batch_size=256):
+#     """
+#     Pré-entraînement de l'acteur par imitation (behavioral cloning) en utilisant
+#     les démonstrations collectées.
 
-    :param actor: l'acteur à pré-entraîner (de type SquashedGaussianActorTQC)
-    :param optimizer: l'optimizer utilisé pour l'acteur (par exemple Adam)
-    :param demo_data: la liste des transitions (chargée depuis le pickle)
-                      Chaque élément est un dictionnaire contenant par exemple :
-                      {'obs': ..., 'action': ..., 'reward': ..., 'next_obs': ..., 'done': ...}
-                      On suppose que obs est un dictionnaire avec la clé "continuous".
+#     :param actor: l'acteur à pré-entraîner (de type SquashedGaussianActorTQC)
+#     :param optimizer: l'optimizer utilisé pour l'acteur (par exemple Adam)
+#     :param demo_data: la liste des transitions (chargée depuis le pickle)
+#                       Chaque élément est un dictionnaire contenant par exemple :
+#                       {'obs': ..., 'action': ..., 'reward': ..., 'next_obs': ..., 'done': ...}
+#                       On suppose que obs est un dictionnaire avec la clé "continuous".
+#     :param num_iterations: nombre d'itérations de pré-entraînement
+#     :param batch_size: taille du mini-batch
+#     """
+#     actor.train()
+#     for it in range(num_iterations):
+#         # Sélection aléatoire d'un mini-batch
+#         indices = np.random.choice(len(demo_data), batch_size, replace=True)
+#         obs_batch = [demo_data[i]['obs'] for i in indices]
+#         actions_batch = [demo_data[i]['action'] for i in indices]
+        
+#         # Ici, on suppose que chaque observation est un dictionnaire avec la clé "continuous"
+#         # On crée un batch d'observations (attention aux dimensions attendues par l'acteur)
+#         obs_continuous = np.stack([obs['continuous'] for obs in obs_batch], axis=0)
+#         actions = np.stack(actions_batch, axis=0)
+        
+#         # Conversion en tenseurs (et transfert sur le même device que l'acteur)
+#         device = next(actor.parameters()).device
+#         obs_tensor = torch.tensor(obs_continuous, dtype=torch.float32, device=device)
+#         actions_tensor = torch.tensor(actions, dtype=torch.float32, device=device)
+        
+#         # Passage dans l'acteur pour obtenir la distribution
+#         dist = actor.get_distribution(obs_tensor)
+#         # Calcul de la log-vraisemblance de l'action démonstration
+#         log_probs = dist.log_prob(actions_tensor)
+#         loss = - log_probs.mean()
+        
+#         optimizer.zero_grad()
+#         loss.backward()
+#         optimizer.step()
+        
+#         logger.add_log("pretraining_actor_loss", loss.item(), it)
+        
+#         if it % 1000 == 0:
+#             print(f"Behavioral Cloning it {it}/{num_iterations}, loss: {loss.item():.4f}")
+
+def behavioral_cloning_pretraining(actor, actor_optimizer, critic, critic_optimizer, demo_data, logger,
+                                   num_iterations=10000, batch_size=256, ent_coef=0.0, kappa=1.0):
+    """
+    Pré-entraînement conjoint de l'acteur par imitation et du critic par régression
+    de Q(s,a) vers la récompense immédiate, sans utiliser next_obs.
+    
+    Chaque transition de demo_data est un dictionnaire contenant au moins :
+      {'obs': ..., 'action': ..., 'reward': ..., 'done': ...}
+    On suppose que chaque observation est un dictionnaire avec la clé "continuous".
+    
+    :param actor: instance de SquashedGaussianActorTQC
+    :param actor_optimizer: optimizer pour l'acteur (ex: Adam)
+    :param critic: instance de TruncatedQuantileNetwork
+    :param critic_optimizer: optimizer pour le critic (ex: Adam)
+    :param demo_data: liste de transitions de démonstration (sans 'next_obs')
+    :param logger: objet logger pour suivre l'évolution des pertes
     :param num_iterations: nombre d'itérations de pré-entraînement
     :param batch_size: taille du mini-batch
+    :param ent_coef: coefficient d'entropie (non utilisé ici, gardé pour la signature)
+    :param kappa: seuil pour la Quantile Huber Loss
     """
+    import numpy as np
+    import torch
+
     actor.train()
+    critic.train()
+    device = next(actor.parameters()).device
+
     for it in range(num_iterations):
-        # Sélection aléatoire d'un mini-batch
+        # --- Extraction du mini-batch de démonstrations ---
         indices = np.random.choice(len(demo_data), batch_size, replace=True)
-        obs_batch = [demo_data[i]['obs'] for i in indices]
+        obs_batch     = [demo_data[i]['obs']    for i in indices]
         actions_batch = [demo_data[i]['action'] for i in indices]
-        
-        # Ici, on suppose que chaque observation est un dictionnaire avec la clé "continuous"
-        # On crée un batch d'observations (attention aux dimensions attendues par l'acteur)
+        rewards_batch = [demo_data[i]['reward'] for i in indices]
+        dones_batch   = [demo_data[i]['done']   for i in indices]
+
+        # On suppose que chaque observation est un dictionnaire avec la clé "continuous"
         obs_continuous = np.stack([obs['continuous'] for obs in obs_batch], axis=0)
-        actions = np.stack(actions_batch, axis=0)
-        
-        # Conversion en tenseurs (et transfert sur le même device que l'acteur)
-        device = next(actor.parameters()).device
-        obs_tensor = torch.tensor(obs_continuous, dtype=torch.float32, device=device)
+        actions        = np.stack(actions_batch, axis=0)
+
+        # Conversion en tenseurs
+        obs_tensor     = torch.tensor(obs_continuous, dtype=torch.float32, device=device)
         actions_tensor = torch.tensor(actions, dtype=torch.float32, device=device)
+        # On redimensionne rewards_tensor pour avoir la forme [batch, 1, 1] afin de pouvoir l'étendre
+        rewards_tensor = torch.tensor(rewards_batch, dtype=torch.float32, device=device).view(-1, 1, 1)
+        # (Le flag 'done' n'est pas utilisé ici car on ne bootstrap pas)
         
-        # Passage dans l'acteur pour obtenir la distribution
+        # --- Mise à jour de l'acteur (Behavioral Cloning) ---
         dist = actor.get_distribution(obs_tensor)
-        # Calcul de la log-vraisemblance de l'action démonstration
         log_probs = dist.log_prob(actions_tensor)
-        loss = - log_probs.mean()
-        
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-        
-        logger.add_log("pretraining_actor_loss", loss.item(), it)
-        
+        loss_actor = -log_probs.mean()
+
+        actor_optimizer.zero_grad()
+        loss_actor.backward()
+        actor_optimizer.step()
+        logger.add_log("pretraining_actor_loss", loss_actor.item(), it)
+
+        # --- Mise à jour du critic ---
+        # 1. Prédiction des quantiles actuels pour le couple (s, a)
+        obs_action = torch.cat((obs_tensor, actions_tensor), dim=1)
+        predicted_quantiles = []
+        for net in critic.nets:
+            q_pred = net(obs_action)  # [batch, n_quantiles]
+            predicted_quantiles.append(q_pred)
+        # Forme finale : [batch, n_nets, n_quantiles]
+        predicted_quantiles = torch.stack(predicted_quantiles, dim=1)
+
+        # 2. Calcul de la target : ici, la target est simplement la récompense immédiate
+        # On étend la récompense pour qu'elle corresponde à la forme [batch, n_nets, n_quantiles]
+        target_quantiles = rewards_tensor.expand_as(predicted_quantiles)
+
+        # 3. Calcul de la Quantile Huber Loss
+        # Calcul de la différence pairwise entre target et quantiles prédites
+        # Shape : [batch, n_nets, n_quantiles, n_quantiles]
+        pairwise_delta = target_quantiles.unsqueeze(-1) - predicted_quantiles.unsqueeze(-2)
+        abs_pairwise_delta = torch.abs(pairwise_delta)
+        huber_loss = torch.where(
+            abs_pairwise_delta <= kappa,
+            0.5 * pairwise_delta.pow(2),
+            kappa * (abs_pairwise_delta - 0.5 * kappa)
+        )
+        n_quantiles = predicted_quantiles.shape[-1]
+        # Construction de la grille de quantiles (tau)
+        tau = (torch.arange(n_quantiles, device=device, dtype=torch.float32) + 0.5) / n_quantiles  # [n_quantiles]
+        tau = tau.view(1, 1, n_quantiles, 1)  # redimensionnement pour diffusion
+        loss_critic = (torch.abs(tau - (pairwise_delta < 0).float()) * huber_loss).mean()
+
+        critic_optimizer.zero_grad()
+        loss_critic.backward()
+        critic_optimizer.step()
+        logger.add_log("pretraining_critic_loss", loss_critic.item(), it)
+
         if it % 1000 == 0:
-            print(f"Behavioral Cloning it {it}/{num_iterations}, loss: {loss.item():.4f}")
+            print(f"Pretraining it {it}/{num_iterations} | Actor loss: {loss_actor.item():.4f} | Critic loss: {loss_critic.item():.4f}")
+
 
 def run_tqc(cfg):
     # 1)  Build the  logger
@@ -271,14 +367,14 @@ def run_tqc(cfg):
 
     if cfg.pretraining:
         # --- Pré-entraînement par imitation ---
-        demo_data_path = "/home/alexis/SuperTuxKart/stk_actor/demo_data.pkl"
+        demo_data_path = "/home/alexis/SuperTuxKart/stk_actor/combined_demo_data.pkl"
         with open(demo_data_path, "rb") as f:
             demo_data = pickle.load(f)
         
         print("Lancement du pré-entraînement (Behavioral Cloning) sur l'acteur...")
-        behavioral_cloning_pretraining(actor, actor_optimizer, demo_data, logger, num_iterations=200000, batch_size=cfg.algorithm.batch_size)
+        behavioral_cloning_pretraining(actor, actor_optimizer, critic, critic_optimizer, demo_data, logger, num_iterations=150000, batch_size=cfg.algorithm.batch_size)
         print("Pré-entraînement terminé.")
-        torch.save(actor.state_dict(), mod_path / "pystk_actor.pth")
+        torch.save(actor.state_dict(), mod_path / "pystk_actor_pretrain_TQC.pth")
     
     if cfg.load_model:
         actor.load_state_dict(torch.load(mod_path / "pystk_actorTQC4.pth", weights_only=True))

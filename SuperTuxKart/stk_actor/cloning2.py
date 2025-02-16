@@ -1,100 +1,66 @@
 import gymnasium as gym
-import numpy as np
+from pystk2_gymnasium import AgentSpec
 import pygame
 import pickle
 import time
-from pystk2_gymnasium import AgentSpec
+import numpy as np
+from typing import List, Callable
 
+# =============================================================================
 # Création de l'environnement
+# =============================================================================
+
 env_name = "supertuxkart/flattened_discrete-v0"
 env = gym.make(env_name, render_mode="human", agent=AgentSpec(use_ai=False))
+
 obs, info = env.reset()
 
-# Initialisation de pygame
+# =============================================================================
+# Configuration de pygame pour la capture des entrées clavier
+# =============================================================================
+
 pygame.init()
 screen = pygame.display.set_mode((640, 480))
-pygame.display.set_caption("Manual Control - SuperTuxKart (Discrete)")
+pygame.display.set_caption("Conduite manuelle - SuperTuxKart")
 clock = pygame.time.Clock()
 
-demo_data = []
-max_episodes = 25
+# =============================================================================
+# Collecte des démonstrations
+# =============================================================================
+
+demo_data = []  # Liste pour stocker les transitions
 episode = 0
-
-print("Contrôles :")
-print("  Z = accélérer, M = boost")
-print("  S = frein")
-print("  Q = tourner à gauche, D = tourner à droite")
-print("  LSHIFT = drift, SPACE = tir, N = nitro, R = rescue")
-print("Par défaut, aucune touche => le kart est neutre (avance tout droit).")
-time.sleep(2)
-
-def encode_action():
-    """
-    Construit et encode l'action discrète attendue.
-    L'ordre des composantes est :
-       [acceleration, steer, brake, drift, fire, nitro, rescue]
-    avec nvec = [5, 7, 2, 2, 2, 2, 2].
-
-    Mapping choisi :
-      - Acceleration (5 valeurs) :
-          • Aucune touche → 2 (neutre)
-          • Touche Z → 3
-          • Touche M → 4
-      - Steer (7 valeurs) :
-          • Aucune touche → 3 (neutre)
-          • Touche Q seule → 0 (gauche)
-          • Touche D seule → 6 (droite)
-      - Les autres actions : 1 si la touche est pressée, sinon 0.
-    """
-    # Mettre à jour l'état des événements
-    pygame.event.pump()
-    keys = pygame.key.get_pressed()
-    
-    # Acceleration
-    if keys[pygame.K_m]:
-        acc = 4
-    elif keys[pygame.K_z]:
-        acc = 3
-    else:
-        acc = 2  # Par défaut : neutre (milieu de l'échelle 0-4)
-    
-    # Steer
-    if keys[pygame.K_q] and not keys[pygame.K_d]:
-        steer = 0
-    elif keys[pygame.K_d] and not keys[pygame.K_q]:
-        steer = 6
-    else:
-        steer = 3  # Par défaut : neutre (milieu de l'échelle 0-6)
-    
-    # Autres actions binaires
-    brake  = int(keys[pygame.K_s])
-    drift  = int(keys[pygame.K_LSHIFT])
-    fire   = int(keys[pygame.K_SPACE])
-    nitro  = int(keys[pygame.K_n])
-    rescue = int(keys[pygame.K_r])
-    
-    # Vecteur d'action
-    components = [acc, steer, brake, drift, fire, nitro, rescue]
-    nvec = [5, 7, 2, 2, 2, 2, 2]
-    
-    # Flattening : encoder le vecteur en un entier
-    flat_action = 0
-    multiplier = 1
-    for comp, base in zip(components, nvec):
-        flat_action += comp * multiplier
-        multiplier *= base
-    return 987
+max_episodes = 10  # Nombre d'épisodes de démonstration à collecter
+time.sleep(2)  # Temps pour se préparer
 
 running = True
 while running and episode < max_episodes:
+    # Gestion des événements pygame
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
 
-    action = encode_action()
+    # Lecture de l'état du clavier
+    keys = pygame.key.get_pressed()
+    action = 601
+    
+    if keys[pygame.K_z]:
+        action = 601 
+    if keys[pygame.K_m]:
+        action = 604    # boost
+    if keys[pygame.K_s]:
+        action = 605
+    if keys[pygame.K_q]:
+        action = 201  
+    if keys[pygame.K_d]:
+        action = 801  # tourner à droite en douceur
+    
+    # Effectuer un pas dans l'environnement
     next_obs, reward, terminated, truncated, info = env.step(action)
     done = terminated or truncated
 
+    # Enregistrer la transition
+    # Ici, on enregistre directement l'observation renvoyée par l'environnement (avec wrappers)
     demo_data.append({
         'obs': obs,
         'action': action,
@@ -102,12 +68,15 @@ while running and episode < max_episodes:
         'next_obs': next_obs,
         'done': done
     })
+    
+    # Mise à jour de l'observation
     obs = next_obs
 
-    env.render()
+    # Rafraîchir l'affichage et limiter à 30 fps
     pygame.display.flip()
     clock.tick(30)
 
+    # Si l'épisode est terminé, réinitialiser l'environnement
     if done:
         episode += 1
         print(f"Episode {episode}/{max_episodes} terminé.")
@@ -117,7 +86,12 @@ while running and episode < max_episodes:
 env.close()
 pygame.quit()
 
-with open("demo_data.pkl", "wb") as f:
+# =============================================================================
+# Sauvegarde des démonstrations
+# =============================================================================
+
+save_path = "/home/alexis/SuperTuxKart/stk_actor/demo_data11.pkl"
+with open(save_path, "wb") as f:
     pickle.dump(demo_data, f)
 
-print(f"Enregistrement terminé : {len(demo_data)} transitions sauvegardées dans demo_data.pkl")
+print(f"Enregistrement terminé : {len(demo_data)} transitions sauvegardées dans {save_path}.")

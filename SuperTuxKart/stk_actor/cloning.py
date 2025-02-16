@@ -48,8 +48,7 @@ class MyActionRescaleWrapper(gym.ActionWrapper):
 def get_wrappers() -> List[Callable[[gym.Env], gym.Wrapper]]:
     """Retourne la liste de wrappers à appliquer à l'environnement."""
     return [
-        lambda env: FeatureFilterWrapper(env, [0, 1, 7, 11, 12, 13, 14, 15, 16, 17, 18, 19,
-                                                 20, 21, 22, 23, 24, 25, 87, 88]),
+        lambda env: FeatureFilterWrapper(env, [0, 1, 7, 87, 88]),
         lambda env: MyActionRescaleWrapper(env)
     ]
 
@@ -88,7 +87,7 @@ clock = pygame.time.Clock()
 
 demo_data = []  # Liste pour stocker les transitions
 episode = 0
-max_episodes = 25  # Nombre d'épisodes de démonstration à collecter
+max_episodes = 1  # Nombre d'épisodes de démonstration à collecter
 
 print("Contrôlez le kart avec les flèches :")
 print(" - Haut : accélérer doucement")
@@ -108,21 +107,16 @@ while running and episode < max_episodes:
     acc = -0.6
     steer = 0.0
     
-    alpha = 0.3  # Facteur de lissage (plus c'est bas, plus c'est smooth)
-    steer_target = 0.0
-    
     if keys[pygame.K_z]:
         acc = -0.6    # accélération réduite pour une conduite plus douce
     if keys[pygame.K_m]:
-        acc = 0.5     # boost
+        acc = 1     # boost
     if keys[pygame.K_s]:
-        acc = -0.94    # freinage moins brutal
+        acc = -1   
     if keys[pygame.K_q]:
-        steer_target = -1.0 # tourner à gauche en douceur
+        steer = -0.7
     if keys[pygame.K_d]:
-        steer_target = 1.0  # tourner à droite en douceur
-
-    steer = (1 - alpha) * steer + alpha * steer_target
+        steer = 0.7
     
     # Construire l'action (vecteur à 2 composantes)
     action = np.array([acc, steer])
@@ -137,7 +131,6 @@ while running and episode < max_episodes:
         'obs': obs,
         'action': action,
         'reward': reward,
-        'next_obs': next_obs,
         'done': done
     })
     
@@ -162,7 +155,7 @@ pygame.quit()
 # Sauvegarde des démonstrations
 # =============================================================================
 
-save_path = "/home/alexis/SuperTuxKart/stk_actor/demo_data3.pkl"
+save_path = "/home/alexis/SuperTuxKart/stk_actor/demo_data53.pkl"
 with open(save_path, "wb") as f:
     pickle.dump(demo_data, f)
 
