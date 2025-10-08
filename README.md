@@ -1,4 +1,4 @@
-#🏎️ SuperTuxKart Reinforcement Learning (RL Project)
+# 🏎️ SuperTuxKart Reinforcement Learning (RL Project)
 
 This project aims to train an **agent** capable of playing *SuperTuxKart* using **Reinforcement Learning (RL)** techniques.  
 It was developed as part of an academic project where students had to design, implement, and evaluate an RL policy to control a kart in the **[SuperTuxKart Gymnasium environment](https://github.com/bpiwowar/pystk2-gymnasium)**  a custom OpenAI Gym-compatible interface built specifically for this challenge.
